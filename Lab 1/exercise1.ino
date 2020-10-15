@@ -12,31 +12,27 @@ bool toggle_led(void *) {
     return false;
   }
   
-  return true;
+  return true; // true if you want to repeat the task
 }
 
 void setup() {
-  // put your setup code here, to run once:
-  
   pinMode(LED_BUILTIN, OUTPUT);
   
   Serial.begin(9600);
-  while (!Serial);
+  while (!Serial); // wait for Serial to be ready
   Serial.println("Enter LED status (on/off):");
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-
   if (Serial.available() > 0) {
-    // read the incoming byte:
+    // read the incoming string:
     ledStatus = Serial.readString();
     ledStatus.trim();
 
     if (ledStatus == "on") {
       Serial.println("Enter the blink rate (1-60 sec):");
-      while(!Serial.available());
-      blinkRate = Serial.parseInt();
+      while(!Serial.available()); // wait for input
+      blinkRate = Serial.parseInt(); // read the incoming int
       
       if(!(blinkRate >= 1 && blinkRate <= 60)) {
         Serial.println("Error: Invalid rate, using default rate.");
@@ -44,7 +40,7 @@ void loop() {
       }
       
       Serial.println("You have selected LED on. Blink rate is " + String(blinkRate) + " sec");
-      timer.every(blinkRate*1000, toggle_led);
+      timer.every(blinkRate*1000, toggle_led); // create task
             
     } else if (ledStatus == "off") {
       Serial.println("You have selected LED off.");
@@ -53,3 +49,4 @@ void loop() {
 
   timer.tick();
 }
+
