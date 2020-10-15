@@ -56,6 +56,9 @@ struct Database {
       int val1 = EEPROM.read(i);
       int val2 = EEPROM.read(i+1);
       Serial.println("(" + String(val1) + ", " + String(val2) + ")");
+
+      dbEntry entry = dbEntry{val1, val2};
+      table[i] = entry;
     }
 
     Serial.println("...Done!");
