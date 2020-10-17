@@ -18,3 +18,10 @@
 - Week of ? : Practical Assignment 5
 - Week of ? : Scheduling
 - Week of ? : Practical Assignment 6
+
+## LoRa32u4 II 868MHz LoRa development board
+![Image of LoRa32u4 II v1.2](master/lora32u4.png)
+
+- Board can be used directly with Arduino when `bsfrance.zip` is installed.
+Just unzip it to `Arduino/hardware` folder that it contains `Arduino/hardware/bsfrance/avr`
+- LoRa RF module can be programmed using [Arduino LoRa library](https://github.com/sandeepmistry/arduino-LoRa)
