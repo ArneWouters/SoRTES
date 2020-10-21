@@ -10,14 +10,9 @@
 - After the user selected values are displayed in serial port, the blink pattern should be seen on the onboard LED
   - Info: Use a timer library to set the blink rate
 
-## Exercise 2 :heavy_check_mark:
+## Exercise 2 :construction:
 - Create a timestamp module (A simple counter should be enough
 - Create a small database (You may use Arduino library)
 - Calibrate and read the temperature value from Arduino and store it into the database
-- Power off and on the board, your database must be maintained without being deleted. (Look for Arduino EEPROM module)
+- When the user pressed `p` on the console, your application should print all the stored values until that point.
 
-## Exercise 3 :heavy_check_mark:
-- Instead of database from the previous exercise, use a linked list for storage
-- The linked list must be persisted across board power on/off cycle.
-- If you need to refresh pointers in C, you can check this out:
-  - https://www.learn-c.org/en/Welcome
