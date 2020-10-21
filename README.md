@@ -24,6 +24,19 @@
 
 ![Image of LoRa32u4 II v1.2 pins](LoRa32u4-pins.png)
 
-- Board can be used directly with Arduino when `bsfrance.zip` is installed.
-Just unzip it to `Arduino/hardware` folder that it contains `Arduino/hardware/bsfrance/avr`
-- LoRa RF module can be programmed using [Arduino LoRa library](https://github.com/sandeepmistry/arduino-LoRa)
+### Install board library for Arduino IDE
+The library can be found [here](https://github.com/BSFrance/BSFrance-avr).
+
+```bash
+cd ~/Arduino/hardware
+git clone https://github.com/BSFrance/BSFrance-avr
+```
+
+### Install LoRa library for Arduino IDE
+LoRa RF module can be programmed using the [Arduino LoRa library](https://github.com/sandeepmistry/arduino-LoRa).
+
+```bash
+cd ~/Arduino/libraries
+git clone https://github.com/sandeepmistry/arduino-LoRa
+```
+
