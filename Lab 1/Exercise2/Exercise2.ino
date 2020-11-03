@@ -72,6 +72,7 @@ void loop()
 }
 
 double getTemperatureInternal() {
+  // For more details check Section 24 in the datasheet
   // Sources: 
   //   - https://syntheticphysical.wordpress.com/2014/01/23/atmega32u2-and-lm36dz-temperature-responses/
   //   - https://www.avrfreaks.net/comment/2580401#comment-2580401
@@ -97,8 +98,8 @@ double getTemperatureInternal() {
   byte high = ADCH;
 
   double t = (high << 8) | low;
-  int offset = -5; // temperature accuracy is +- 10
-  t = (t - 273 + offset); //Convert from Kelvin to Celcius plus Offset
+  int offset = -5; // Temperature accuracy is +- 10
+  t = (t - 273 + offset); // Convert from Kelvin to Celcius plus Offset
 
   return t;
 }
