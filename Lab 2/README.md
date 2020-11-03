@@ -1,4 +1,4 @@
-# Exercises [2019-2020]
+# Exercises
 ## Exercise 1 :heavy_check_mark:
 - Run the Send-Receive example
   - Simple send and receive
