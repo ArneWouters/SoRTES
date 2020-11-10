@@ -12,7 +12,9 @@
 #define RST 4
 #define DI0 7
 #define BAND 8693E5
+#define configUSE_IDLE_HOOK 1
 #define INCLUDE_vTaskSuspend 1
+#define INCLUDE_vTaskDelay 1
 
 /*********
  * Tasks *
@@ -21,6 +23,7 @@
 void TaskMonitorRadio(void *pvParameters);
 void TaskMonitorSerialPort(void *pvParameters);
 void TaskWriteDatabase(void *pvParameters);
+void vApplicationIdleHook(void);
 
 
 /********
@@ -58,9 +61,9 @@ void setup() {
   }
 
   if (dataQueue != NULL) {
-    xTaskCreate(TaskMonitorRadio, "Monitor LoRa", 128, NULL, 0, NULL);
-    xTaskCreate(TaskMonitorSerialPort, "Monitor Serial Port", 128, NULL, 0, NULL);
-    xTaskCreate(TaskWriteDatabase, "Database Writer", 128, NULL, 0, NULL);
+    xTaskCreate(TaskMonitorRadio, "Monitor LoRa", 128, NULL, 1, NULL);
+    xTaskCreate(TaskMonitorSerialPort, "Monitor Serial Port", 128, NULL, 1, NULL);
+    xTaskCreate(TaskWriteDatabase, "Database Writer", 128, NULL, 1, NULL);
   }
 
   SemaphoreHndl = xSemaphoreCreateBinary();
@@ -165,6 +168,9 @@ void TaskMonitorRadio(void *pvParameters) {
       if (!firstPackageReceived) {
         firstPackageReceived = true;
       }
+
+      vTaskDelay((data.sleepTime*1000+400)/portTICK_PERIOD_MS);
+      Serial.println("Wake up: TaskMonitorRadio");
     }
   }
 }
@@ -185,15 +191,14 @@ void TaskMonitorSerialPort(void *pvParameters) {
       if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
 
         if (command == "1") {
-          if (addr-(int)sizeof(Data) < 2) {
+          if (addr <= 2) {
             Serial.println("Unable to print entry");
-            return;
+          } else {
+            Data data;
+            EEPROM.get(addr-(int)sizeof(Data), data);
+            Serial.print("Last value | ");
+            printData(data);
           }
-      
-          Data data;
-          EEPROM.get(addr-(int)sizeof(Data), data);
-          Serial.print("Last value | ");
-          printData(data);
 
         } else if (command == "2") {
           if (addr > 2) {
@@ -247,10 +252,24 @@ void TaskWriteDatabase(void *pvParameters) {
       if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
         EEPROM.put(addr, valueFromQueue);
         addr += (int)sizeof(valueFromQueue);
+
+        if (addr > EEPROM.length()-1) {
+          // reset database when memory is full
+          addr = 2;
+          EEPROM.put(addr, valueFromQueue);
+          addr += (int)sizeof(valueFromQueue);
+        }
+        
         EEPROM.put(0, addr);
+        Serial.println("Stored data");
         
         xSemaphoreGive(SemaphoreHndl);
       }
+
+      vTaskDelay((valueFromQueue.sleepTime*1000+400)/portTICK_PERIOD_MS);
+      Serial.println("Wake up: TaskWriteDatabase");
     }
   }
 }
+
+void vApplicationIdleHook(void){}
