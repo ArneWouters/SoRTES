@@ -4,6 +4,7 @@
 #include <Arduino_FreeRTOS.h>
 #include <semphr.h>
 #include <queue.h>
+#include <avr/sleep.h>
 
 #define SCK 15
 #define MISO 14
@@ -13,6 +14,7 @@
 #define DI0 7
 #define BAND 8693E5
 #define configUSE_IDLE_HOOK 1
+#define configUSE_TICKLESS_IDLE 1
 #define INCLUDE_vTaskSuspend 1
 #define INCLUDE_vTaskDelay 1
 
@@ -88,6 +90,20 @@ void printData(Data data) {
   Serial.println(" seconds");
 }
 
+void sleep() {
+  //vTaskSuspendAll();
+  vTaskEndScheduler();
+  
+  // disable ADC
+  ADCSRA = 0;
+  
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
+  sleep_cpu();
+
+  sleep_disable();
+}
+
 void debugFunction() {
   Serial.println("@debug");
 }
@@ -152,9 +168,6 @@ void TaskMonitorRadio(void *pvParameters) {
       Serial.print(s);
       Serial.println("'");
 
-//      String sender = s.substring(0,2);
-//      int id = s.substring(2,4).toInt();
-
       Data data;
       data.temperature = getTemperatureInternal();
       data.sleepTime = s.substring(4).toInt();
@@ -169,7 +182,8 @@ void TaskMonitorRadio(void *pvParameters) {
         firstPackageReceived = true;
       }
 
-      vTaskDelay((data.sleepTime*1000+400)/portTICK_PERIOD_MS);
+      Serial.println("Sleep: TaskMonitorRadio");
+      vTaskDelay((data.sleepTime*1000)/portTICK_PERIOD_MS);
       Serial.println("Wake up: TaskMonitorRadio");
     }
   }
@@ -188,24 +202,27 @@ void TaskMonitorSerialPort(void *pvParameters) {
       String command = Serial.readString();
       command.trim();
 
-      if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
-
-        if (command == "1") {
-          if (addr <= 2) {
-            Serial.println("Unable to print entry");
-          } else {
+      if (command == "1") {
+        if (addr <= 2) {
+          Serial.println("Unable to print entry");
+        } else {
+          if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
             Data data;
             EEPROM.get(addr-(int)sizeof(Data), data);
             Serial.print("Last value | ");
             printData(data);
-          }
 
-        } else if (command == "2") {
-          if (addr > 2) {
-            int address = 2;
-            int i = 0;
-            Data data;
-  
+            xSemaphoreGive(SemaphoreHndl);
+          }
+        }
+
+      } else if (command == "2") {
+        if (addr > 2) {
+          int address = 2;
+          int i = 0;
+          Data data;
+
+          if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
             while (address+(int)sizeof(Data) <= addr) {
               Serial.print(i);
               Serial.print("| ");
@@ -214,24 +231,28 @@ void TaskMonitorSerialPort(void *pvParameters) {
               address += (int)sizeof(Data);
               i++;
             }
+
+            xSemaphoreGive(SemaphoreHndl);
           }
-          
-        } else if (command == "3") {
-          Serial.println("@enterLowPowerMode");
-          
-        } else if (command == "4") {
+        }
+        
+      } else if (command == "3") {
+        Serial.println("Entering ultra low-power mode");
+        delay(200);
+        sleep();
+        
+      } else if (command == "4") {
+        if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
           Serial.println("Resetting database");
           addr = 2;
           EEPROM.put(0, addr);
 
-        } else if (command == "5") {
-          debugFunction();
-        } else {
-          Serial.println("Invalid command.");
+          xSemaphoreGive(SemaphoreHndl);
         }
-
-        xSemaphoreGive(SemaphoreHndl); 
-      }
+        
+      } else {
+        Serial.println("Invalid command.");
+      } 
     }
   }
 }
@@ -245,7 +266,9 @@ void TaskWriteDatabase(void *pvParameters) {
     xSemaphoreGive(SemaphoreHndl);
   }
 
-  Data valueFromQueue;;
+  int beaconTreshold = 20;
+  int beaconCounter = 0;
+  Data valueFromQueue;
 
   for(;;) {
     if (xQueueReceive(dataQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
@@ -266,10 +289,18 @@ void TaskWriteDatabase(void *pvParameters) {
         xSemaphoreGive(SemaphoreHndl);
       }
 
-      vTaskDelay((valueFromQueue.sleepTime*1000+400)/portTICK_PERIOD_MS);
+      beaconCounter++;
+
+      // check if 20 beacons received
+      if (beaconCounter == beaconTreshold) {
+        Serial.println("Entering ultra low-power mode");
+        delay(200);
+        sleep();
+      }
+
+      Serial.println("Sleep: TaskWriteDatabase");
+      vTaskDelay((valueFromQueue.sleepTime*1000)/portTICK_PERIOD_MS);
       Serial.println("Wake up: TaskWriteDatabase");
     }
   }
 }
-
-void vApplicationIdleHook(void){}
