@@ -35,9 +35,78 @@ int getTemperatureInternal();
  * Database *
  ************/
 
-struct DataBlock {
+ struct DatabaseEntry {
   int temperature;  // temperature of the internal sensor
   int sleepTime; // delay in seconds for the next beacon
+};
+
+struct Database {
+  int addr;  // address of the last value written
+
+  Database() {
+    EEPROM.put(0, addr);
+
+    // making sure addr is not < 2 because first 2 bytes are reserved
+    if (addr < 2) {
+      addr = 2;
+    }
+  }
+
+  void addEntry(int temperature, int sleepTime) {
+    // check if enough space left, reset addr if not
+    if (sizeof(DatabaseEntry) + addr > EEPROM.length()) {
+      addr = 2;
+    }
+
+    DatabaseEntry entry;
+    entry.temperature = temperature;
+    entry.sleepTime = sleepTime;
+
+    Serial.print("Store Address: ");
+    Serial.println(addr);
+    Serial.print(entry.temperature);
+    Serial.print(" - ");
+    Serial.println(entry.sleepTime);
+   
+    EEPROM.put(addr, entry);
+    addr += sizeof(entry);
+    EEPROM.put(0, addr);
+  }
+
+  void printEntry(int address) {   
+    if (address < 2 || sizeof(DatabaseEntry) + address > EEPROM.length()) {
+      Serial.println("Unable to print entry");
+      return;
+    }
+
+    DatabaseEntry entry;
+    EEPROM.get(addr, entry);
+
+    Serial.print("Read Address: ");
+    Serial.println(address);
+    Serial.print(entry.temperature);
+    Serial.print(" - ");
+    Serial.println(entry.sleepTime);
+  }
+
+  void printLastEntry() {
+    printEntry(addr-(int)sizeof(DatabaseEntry));
+  }
+
+  void printAll() {
+    int address = addr-(int)sizeof(DatabaseEntry);
+
+    while (address >= 2) {
+      printEntry(address);
+      address = address - (int)sizeof(DatabaseEntry);
+    }
+  }
+
+  void reset() {
+    Serial.println("Resetting database");
+    addr = 2;
+    EEPROM.put(0, addr);
+  }
 };
 
 
@@ -46,9 +115,8 @@ struct DataBlock {
  ***********/
 
 bool firstPackageReceived = false;
-//Database db = Database();
+Database db = Database();
 SemaphoreHandle_t SemaphoreHndl;
-int address; // address of the last value written
 
 
 /*********
@@ -56,7 +124,6 @@ int address; // address of the last value written
  *********/
 
 void setup() {
-  EEPROM.put(0, address);
   Serial.begin(9600);
   while (!Serial);
 
@@ -75,57 +142,14 @@ void loop() {}
  * Definitions *
  ***************/
 
-void storeDataBlock(int temperature, int sleepTime) {
-  // check if enough space left, reset addr if not
-  if (sizeof(DataBlock) + address > EEPROM.length()) {
-    address = 2;
-  }
-
-  DataBlock data;
-  data.temperature = temperature;
-  data.sleepTime = sleepTime;
-
-  Serial.print("Store Address: ");
-  Serial.println(address);
-  Serial.print(data.temperature);
-  Serial.print(" - ");
-  Serial.println(data.sleepTime);
- 
-  EEPROM.put(address, data);
-  address += sizeof(data);
-  EEPROM.put(0, address);
-}
-
-void printDataBlock(int addr) {
-  if (addr < 2 || sizeof(DataBlock) + addr > EEPROM.length()) {
-      Serial.println("Unable to print entry");
-      return;
-    }
-
-    DataBlock data;
-    EEPROM.get(addr, data);
-
-    Serial.print("Read Address: ");
-    Serial.println(addr);
-    Serial.print(data.temperature);
-    Serial.print(" - ");
-    Serial.println(data.sleepTime);
-}
-
 void printLastValue() {
   Serial.println("@printLastValue");
-  printDataBlock(address-(int)sizeof(DataBlock));
+  db.printLastEntry();
 }
 
 void printAllValues() {
   Serial.println("@printAllValues");
-//  db.printAll();
-//  int address = addr-(int)sizeof(DatabaseEntry);
-//
-//    while (address >= 2) {
-//      printEntry(address);
-//      address = address - (int)sizeof(DatabaseEntry);
-//    }
+  db.printAll();
 }
 
 void enterLowPowerMode() {
@@ -133,8 +157,8 @@ void enterLowPowerMode() {
 }
 
 void debugFunction() {
-  Serial.println("@addRandomData");
-  storeDataBlock(random(-100, 101), random(10));
+  Serial.println("@addRandomEntry");
+  db.addEntry(random(-100, 101), random(10));
 }
 
 int getTemperatureInternal() {
@@ -203,8 +227,8 @@ void TaskMonitorRadio(void *pvParameters) {
       if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
         int sleepTime = s.substring(4).toInt();
         int temperature = getTemperatureInternal();
-//        db.addEntry(temperature, sleepTime);
-//        db.printAll();
+        db.addEntry(temperature, sleepTime);
+        db.printAll();
   
         if (!firstPackageReceived) {
           firstPackageReceived = true;
@@ -212,6 +236,8 @@ void TaskMonitorRadio(void *pvParameters) {
 
         xSemaphoreGive(SemaphoreHndl);
       }
+      
+      
     }
   }
 }
@@ -233,21 +259,14 @@ void TaskMonitorSerialPort(void *pvParameters) {
 
         if (command == "1") {
           printLastValue();
-          
         } else if (command == "2") {
           printAllValues();
-          
         } else if (command == "3") {
           enterLowPowerMode();
-          
         } else if (command == "4") {
-          Serial.println("Resetting database");
-          address = 2;
-          EEPROM.put(0, address);
-          
+          db.reset();
         } else if (command == "5") {
           debugFunction();
-          
         } else {
           Serial.println("Invalid command.");
         }
