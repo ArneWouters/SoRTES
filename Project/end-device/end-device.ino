@@ -157,6 +157,11 @@ void TaskMonitorRadio(void *pvParameters) {
       data.sleepTime = s.substring(4).toInt();
       xQueueSend(dataQueue, &data, portMAX_DELAY);
 
+      // answer to gw by sending temperature back
+      LoRa.beginPacket();
+      LoRa.print(data.temperature);
+      LoRa.endPacket();
+
       if (!firstPackageReceived) {
         firstPackageReceived = true;
       }
