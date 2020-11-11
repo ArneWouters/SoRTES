@@ -21,10 +21,11 @@
 /*********
  * Tasks *
  *********/
- 
-void TaskMonitorRadio(void *pvParameters);
-void TaskMonitorSerialPort(void *pvParameters);
-void TaskWriteDatabase(void *pvParameters);
+
+void TaskLoRaReceiver(void);
+void TaskDatabaseManager(void);
+void TaskLoRaSender(void);
+void TaskCommandManager(void);
 void vApplicationIdleHook(void);
 
 
@@ -32,7 +33,7 @@ void vApplicationIdleHook(void);
  * Data *
  ********/
 
- struct Data {
+struct Data {
   int temperature;  // temperature of the internal sensor
   int sleepTime; // delay in seconds for the next beacon
 };
@@ -44,8 +45,13 @@ void vApplicationIdleHook(void);
 
 bool firstPackageReceived = false;
 int addr = 2;
+TaskHandle_t LoRaReceiverHandle;
+TaskHandle_t DatabaseManagerHandle;
+TaskHandle_t LoRaSenderHandle;
+TaskHandle_t CommandManagerHandle;
 SemaphoreHandle_t SemaphoreHndl;
-QueueHandle_t dataQueue;
+QueueHandle_t DatabaseQueue;
+QueueHandle_t LoRaSenderQueue;
 
 
 /*********
@@ -53,7 +59,9 @@ QueueHandle_t dataQueue;
  *********/
 
 void setup() {
-  dataQueue = xQueueCreate(10, sizeof(Data));
+  DatabaseQueue = xQueueCreate(10, sizeof(String));
+  LoRaSenderQueue = xQueueCreate(10, sizeof(int));
+  
   Serial.begin(9600);
   while (!Serial);
 
@@ -62,10 +70,11 @@ void setup() {
     addr = 2;
   }
 
-  if (dataQueue != NULL) {
-    xTaskCreate(TaskMonitorRadio, "Monitor LoRa", 128, NULL, 1, NULL);
-    xTaskCreate(TaskMonitorSerialPort, "Monitor Serial Port", 128, NULL, 1, NULL);
-    xTaskCreate(TaskWriteDatabase, "Database Writer", 128, NULL, 1, NULL);
+  if (DatabaseQueue != NULL || LoRaSenderQueue != NULL) {
+    xTaskCreate(TaskLoRaReceiver, "LoRa Receiver", 128, NULL, 1, &LoRaReceiverHandle);
+    xTaskCreate(TaskDatabaseManager, "Database Manager", 128, NULL, 1, &DatabaseManagerHandle);
+    xTaskCreate(TaskLoRaSender, "LoRa Sender", 128, NULL, 1, &LoRaSenderHandle);
+    xTaskCreate(TaskCommandManager, "Command Manager", 128, NULL, 1, &CommandManagerHandle);
   }
 
   SemaphoreHndl = xSemaphoreCreateBinary();
@@ -141,18 +150,25 @@ int getTemperatureInternal() {
   return t;
 }
 
-void TaskMonitorRadio(void *pvParameters) {
-  (void) pvParameters;
-
+void TaskLoRaReceiver(void) {
   Serial.println("Starting LoRa Receiver");
   LoRa.setPins(SS,RST,DI0);
 
   if (!LoRa.begin(BAND)) {
     Serial.println("Starting LoRa failed!");
-    return;
   }
 
+  int beaconTreshold = 20;
+  int beaconCounter = 0;
+
   for(;;) {
+    // check if 20 beacons received
+    if (beaconCounter == beaconTreshold) {
+      Serial.println("Entering ultra low-power mode");
+      delay(200);
+      sleep();
+    }
+      
     int packetSize = LoRa.parsePacket();
     if (packetSize >= 5) {
       // received a packet with size 5 or more
@@ -168,33 +184,85 @@ void TaskMonitorRadio(void *pvParameters) {
       Serial.print(s);
       Serial.println("'");
 
-      Data data;
-      data.temperature = getTemperatureInternal();
-      data.sleepTime = s.substring(4).toInt();
-      xQueueSend(dataQueue, &data, portMAX_DELAY);
-
-      // answer to gw by sending temperature back
-      LoRa.beginPacket();
-      LoRa.print(data.temperature);
-      LoRa.endPacket();
+      int sleepTime = s.substring(4).toInt();
+      xQueueSend(DatabaseQueue, &s, portMAX_DELAY);
+      beaconCounter++;
 
       if (!firstPackageReceived) {
         firstPackageReceived = true;
       }
 
-      Serial.println("Sleep: TaskMonitorRadio");
-      vTaskDelay((data.sleepTime*1000)/portTICK_PERIOD_MS);
-      Serial.println("Wake up: TaskMonitorRadio");
+      Serial.println("Resuming DatabaseManager");
+      vTaskResume(DatabaseManagerHandle);
+
+      Serial.println("Sleep LoRaReceiver");
+      vTaskDelay((sleepTime*1000)/portTICK_PERIOD_MS);
+      Serial.println("Wake up LoRaReceiver");
     }
   }
 }
 
-void TaskMonitorSerialPort(void *pvParameters) {
-  (void) pvParameters;
+void TaskDatabaseManager(void) {
+  if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
+    EEPROM.get(0, addr);
+    
+    xSemaphoreGive(SemaphoreHndl);
+  }
+  
+  String valueFromQueue;
+  Data dt;
 
   for(;;) {
+    if (xQueueReceive(DatabaseQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
+      if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
+        dt.temperature = getTemperatureInternal();
+        dt.sleepTime = valueFromQueue.substring(4).toInt();
+        EEPROM.put(addr, dt);
+        addr += (int)sizeof(dt);
+
+        if (addr > EEPROM.length()-1) {
+          // reset database when memory is full
+          addr = 2;
+          EEPROM.put(addr, dt);
+          addr += (int)sizeof(dt);
+        }
+        
+        EEPROM.put(0, addr);
+        Serial.println("Stored data");
+        
+        xSemaphoreGive(SemaphoreHndl);
+      }
+
+      xQueueSend(LoRaSenderQueue, &dt.temperature, portMAX_DELAY);
+
+      Serial.println("Resuming LoRaSender");
+      vTaskResume(LoRaSenderHandle);
+    }
+
+    Serial.println("Suspend DatabaseManager");
+    vTaskSuspend(NULL);
+  }
+}
+
+void TaskLoRaSender(void) {
+  int valueFromQueue;
+  
+  for(;;) {
+    if (xQueueReceive(LoRaSenderQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
+      LoRa.beginPacket();
+      LoRa.print(valueFromQueue);
+      LoRa.endPacket();
+    }
+
+    Serial.println("Suspend LoRaSender");
+    vTaskSuspend(NULL);
+  }
+}
+
+void TaskCommandManager(void) {
+  for(;;) {
     if (firstPackageReceived) {
-      Serial.println("Disabled Monitor Serial Port.");
+      Serial.println("Disabled CommandManager");
       vTaskDelete(NULL);
     }
     
@@ -249,58 +317,10 @@ void TaskMonitorSerialPort(void *pvParameters) {
 
           xSemaphoreGive(SemaphoreHndl);
         }
-        
+
       } else {
         Serial.println("Invalid command.");
-      } 
-    }
-  }
-}
-
-void TaskWriteDatabase(void *pvParameters) {
-  (void) pvParameters;
-
-  if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
-    EEPROM.get(0, addr);
-    
-    xSemaphoreGive(SemaphoreHndl);
-  }
-
-  int beaconTreshold = 20;
-  int beaconCounter = 0;
-  Data valueFromQueue;
-
-  for(;;) {
-    if (xQueueReceive(dataQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
-      if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
-        EEPROM.put(addr, valueFromQueue);
-        addr += (int)sizeof(valueFromQueue);
-
-        if (addr > EEPROM.length()-1) {
-          // reset database when memory is full
-          addr = 2;
-          EEPROM.put(addr, valueFromQueue);
-          addr += (int)sizeof(valueFromQueue);
-        }
-        
-        EEPROM.put(0, addr);
-        Serial.println("Stored data");
-        
-        xSemaphoreGive(SemaphoreHndl);
       }
-
-      beaconCounter++;
-
-      // check if 20 beacons received
-      if (beaconCounter == beaconTreshold) {
-        Serial.println("Entering ultra low-power mode");
-        delay(200);
-        sleep();
-      }
-
-      Serial.println("Sleep: TaskWriteDatabase");
-      vTaskDelay((valueFromQueue.sleepTime*1000)/portTICK_PERIOD_MS);
-      Serial.println("Wake up: TaskWriteDatabase");
     }
   }
 }
