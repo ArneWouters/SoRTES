@@ -14,7 +14,7 @@
 
 \begin{document}
 
-\input{titel}
+\input{title}
 
 \pagenumbering{arabic}
 \pagestyle{scrheadings}
@@ -24,6 +24,53 @@
 \cfoot{\pagemark}
 
 \newpage
+
+\section{The system}
+The system consists of 4 tasks:
+\begin{itemize}
+    \item LoRaReceiver
+    \item DatabaseManager
+    \item LoRaSender
+    \item CommandManager
+\end{itemize}
+
+There are 2 queues, the \textit{DatabaseQueue} and the \textit{LoRaSenderQueue}.
+We also have a semaphore that is required for every access to EEPROM.
+
+\subsection{LoRaReceiver}
+This task receives and reads incoming beacosn. Packets with a size smaller than 5 will be ignored because
+we assume the message of the beacon has a length of atleast 5 characters. The system can handle packets with more characters
+as long as they follow the format, that the first 4 characters are the gateway ID and other characters are the time until the
+next beacon transmission. Once a beacon is received, the time until the next beacon is put in the \textit{DatabaseQueue} and
+the \textit{firstPackageReceived} flag is set to \textit{true} if it was false. If low-power operation mode is enabled,
+the \textit{DatabaseManager} task is resumed and the \textit{LoRaReceiver} will go to sleep for $x$ seconds,
+where $x$ is the time until the next beacon. When the \textit{LoRaReceiver} processed 20 beacons,
+it will put the system in ultra low-power mode.
+
+\subsection{DatabaseManager}
+This task reads values from the \textit{DatabaseQueue}. If low-power operation mode is enabled, it will suspend itself after
+every loop and only resume when the function \textit{vTaskResume()} is called in the \textit{LoRaReceiver}.
+The item in the queue gets grabbed and the \textit{DatabaseManager} takes or waits for the
+semaphore. We get the temperature from the temperature sensor and then we write the temperature and the data from the queue to the database.
+After the write we update the address that refers to the address behind the last write in the EEPROM. We also store this value in the first
+2 bytes of the EEPROM so we can resume adding to the database at the end without overwriting the old data when the arduino is retarted.
+When the EEPROM is full, we reset and start writing from the first address again. After writing to the EEPROM, the semaphore is returned.
+The temperature is put into the \textit{LoRaSenderQueue} and the \textit{LoRaSender} task is resumed.
+
+\subsection{LoRaSender}
+This task reads values from the \textit{LoRaSenderQueue}. If low-power operation mode is enabled, it will suspend itself after
+every loop and only resume when the function \textit{vTaskResume()} is called in the \textit{DatabaseManager}.
+This task reads the temperature value from the queue, makes a packet and sends it back to the gateway.
+
+\subsection{CommandManager}
+This task reads commands from the serial port and prints output to the serial port at a rate of 9600 baud.
+There are 4 commands supported (the input for these functions is just the numbers 1, 2, 3 and 4):
+\begin{enumerate}
+    \item read the latest temperature value and beacon details from database and print the output to the serial port
+    \item read all temperature values and beacon details from database and print the output to the serial port
+    \item enable low power operation mode
+    \item reset the database
+\end{enumerate}
 
 \section{Varying real-time constraint}
 

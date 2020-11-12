@@ -45,6 +45,7 @@ struct Data {
  ***********/
 
 bool firstPackageReceived = false;
+bool lowPowerOperationMode = false;
 int addr = 2;
 TaskHandle_t LoRaReceiverHandle;
 TaskHandle_t DatabaseManagerHandle;
@@ -145,7 +146,7 @@ int getTemperatureInternal() {
   byte high = ADCH;
 
   double t = (high << 8) | low;
-  int offset = 5; // Temperature accuracy is +- 10
+  int offset = 5; // Temperature accuracy is +- 10, 5 is the value after calibration at room temperature
   t = (t - 273 + offset); // Convert from Kelvin to Celcius plus Offset
 
   return t;
@@ -193,12 +194,14 @@ void TaskLoRaReceiver(void) {
         firstPackageReceived = true;
       }
 
-      Serial.println("Resuming DatabaseManager");
-      vTaskResume(DatabaseManagerHandle);
-
-      Serial.println("Sleep LoRaReceiver");
-      vTaskDelay((sleepTime*1000)/portTICK_PERIOD_MS);
-      Serial.println("Wake up LoRaReceiver");
+      if (lowPowerOperationMode) {
+        Serial.println("Resuming DatabaseManager");
+        vTaskResume(DatabaseManagerHandle);
+  
+        Serial.println("Sleep LoRaReceiver");
+        vTaskDelay((sleepTime*1000)/portTICK_PERIOD_MS);
+        Serial.println("Wake up LoRaReceiver");
+      }
     }
   }
 }
@@ -240,8 +243,10 @@ void TaskDatabaseManager(void) {
       vTaskResume(LoRaSenderHandle);
     }
 
-    Serial.println("Suspend DatabaseManager");
-    vTaskSuspend(NULL);
+    if (lowPowerOperationMode) {
+      Serial.println("Suspend DatabaseManager");
+      vTaskSuspend(NULL);
+    }
   }
 }
 
@@ -255,8 +260,10 @@ void TaskLoRaSender(void) {
       LoRa.endPacket();
     }
 
-    Serial.println("Suspend LoRaSender");
-    vTaskSuspend(NULL);
+    if (lowPowerOperationMode) {
+      Serial.println("Suspend LoRaSender");
+      vTaskSuspend(NULL);
+    }
   }
 }
 
@@ -306,9 +313,8 @@ void TaskCommandManager(void) {
         }
         
       } else if (command == "3") {
-        Serial.println("Entering ultra low-power mode");
-        delay(200);
-        sleep();
+        Serial.println("low-power operation mode enabled");
+        lowPowerOperationMode = true;
         
       } else if (command == "4") {
         if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
