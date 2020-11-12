@@ -5,6 +5,7 @@
 #include <semphr.h>
 #include <queue.h>
 #include <avr/sleep.h>
+#include <avr/power.h>
 
 #define SCK 15
 #define MISO 14
@@ -63,7 +64,7 @@ void setup() {
   LoRaSenderQueue = xQueueCreate(10, sizeof(int));
   
   Serial.begin(9600);
-  while (!Serial);
+//  while (!Serial);
 
   EEPROM.get(0, addr);
   if (addr < 2 || addr > EEPROM.length()-1) {
@@ -104,13 +105,17 @@ void sleep() {
   vTaskEndScheduler();
   
   // disable ADC
+  byte old_ADCSRA = ADCSRA;
   ADCSRA = 0;
   
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
+  power_all_disable();
   sleep_cpu();
 
   sleep_disable();
+  power_all_enable();
+  ADCSRA = old_ADCSRA;
 }
 
 int getTemperatureInternal() {
@@ -180,7 +185,7 @@ void TaskLoRaReceiver(void) {
       Serial.print(s);
       Serial.println("'");
 
-      int sleepTime = s.substring(4).toInt();
+      int sleepTime = s.substring(4).toInt()-1;
       xQueueSend(DatabaseQueue, &s, portMAX_DELAY);
       beaconCounter++;
 
@@ -322,6 +327,9 @@ void TaskCommandManager(void) {
 }
 
 void vApplicationIdleHook(void){
+  // disable ADC
+  ADCSRA = 0;
+
   set_sleep_mode( SLEEP_MODE_IDLE );
   sleep_enable();
   sleep_cpu();
