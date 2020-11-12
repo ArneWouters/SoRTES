@@ -113,10 +113,6 @@ void sleep() {
   sleep_disable();
 }
 
-void debugFunction() {
-  Serial.println("@debug");
-}
-
 int getTemperatureInternal() {
   // For more details check Section 24 in the datasheet
   // Sources: 
@@ -323,4 +319,12 @@ void TaskCommandManager(void) {
       }
     }
   }
+}
+
+void vApplicationIdleHook(void){
+  set_sleep_mode( SLEEP_MODE_IDLE );
+  sleep_enable();
+  sleep_cpu();
+
+  sleep_reset(); 
 }
