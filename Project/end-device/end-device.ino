@@ -45,7 +45,6 @@ struct Data {
  ***********/
 
 bool firstPackageReceived = false;
-bool lowPowerOperationMode = false;
 int addr = 2;
 TaskHandle_t LoRaReceiverHandle;
 TaskHandle_t DatabaseManagerHandle;
@@ -65,7 +64,6 @@ void setup() {
   LoRaSenderQueue = xQueueCreate(10, sizeof(int));
   
   Serial.begin(9600);
-//  while (!Serial);
 
   EEPROM.get(0, addr);
   if (addr < 2 || addr > EEPROM.length()-1) {
@@ -73,10 +71,10 @@ void setup() {
   }
 
   if (DatabaseQueue != NULL || LoRaSenderQueue != NULL) {
-    xTaskCreate(TaskLoRaReceiver, "LoRa Receiver", 128, NULL, 1, &LoRaReceiverHandle);
+    xTaskCreate(TaskLoRaReceiver, "LoRa Receiver", 128, NULL, 2, &LoRaReceiverHandle);
     xTaskCreate(TaskDatabaseManager, "Database Manager", 128, NULL, 1, &DatabaseManagerHandle);
     xTaskCreate(TaskLoRaSender, "LoRa Sender", 128, NULL, 1, &LoRaSenderHandle);
-    xTaskCreate(TaskCommandManager, "Command Manager", 128, NULL, 1, &CommandManagerHandle);
+    xTaskCreate(TaskCommandManager, "Command Manager", 128, NULL, 2, &CommandManagerHandle);
   }
 
   SemaphoreHndl = xSemaphoreCreateBinary();
@@ -101,13 +99,25 @@ void printData(Data data) {
   Serial.println(" seconds");
 }
 
-void sleep() {
-  //vTaskSuspendAll();
+void ultraLowPowerMode() {
   vTaskEndScheduler();
-  
+
   // disable ADC
-  byte old_ADCSRA = ADCSRA;
   ADCSRA = 0;
+
+  // Disable USB interrupts
+  UDIEN  = 0b11111101;
+  UEIENX = 0b11011111;
+  
+  // Stopping USB subsystems explicitly since power_all_disable() will not do that
+  USBCON |=  _BV(FRZCLK); // Freeze USB clock 
+  PLLCSR &= ~_BV(PLLE); // Disable USB PLL
+  USBCON &= ~_BV(OTGPADE);// Disable the OTG pad regulator
+  USBCON &= ~_BV(VBUSTE); // Disable the VBUS transition enable bit
+  UHWCON &= ~_BV(UVREGE); // Disable USB pad regulator
+  USBINT &= ~_BV(VBUSTI); // Clear the IVBUS Transition Interrupt flag
+  USBCON &= ~_BV(USBE); // Disable USB interface
+  UDCON  |=  _BV(DETACH); // Physically detach USB (by disconnecting internal pull-ups on D+ and D-)
   
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   sleep_enable();
@@ -116,7 +126,6 @@ void sleep() {
 
   sleep_disable();
   power_all_enable();
-  ADCSRA = old_ADCSRA;
 }
 
 int getTemperatureInternal() {
@@ -166,9 +175,9 @@ void TaskLoRaReceiver(void) {
   for(;;) {
     // check if 20 beacons received
     if (beaconCounter == beaconTreshold) {
-      Serial.println("Entering ultra low-power mode");
+      Serial.println("Activating ultra low-power mode");
       delay(200);
-      sleep();
+      ultraLowPowerMode();
     }
       
     int packetSize = LoRa.parsePacket();
@@ -186,7 +195,7 @@ void TaskLoRaReceiver(void) {
       Serial.print(s);
       Serial.println("'");
 
-      int sleepTime = s.substring(4).toInt()-1;
+      int sleepTime = s.substring(4).toInt();
       xQueueSend(DatabaseQueue, &s, portMAX_DELAY);
       beaconCounter++;
 
@@ -194,14 +203,12 @@ void TaskLoRaReceiver(void) {
         firstPackageReceived = true;
       }
 
-      if (lowPowerOperationMode) {
-        Serial.println("Resuming DatabaseManager");
-        vTaskResume(DatabaseManagerHandle);
-  
-        Serial.println("Sleep LoRaReceiver");
-        vTaskDelay((sleepTime*1000)/portTICK_PERIOD_MS);
-        Serial.println("Wake up LoRaReceiver");
-      }
+      Serial.println("Resuming DatabaseManager");
+      vTaskResume(DatabaseManagerHandle);
+
+      Serial.println("Sleep LoRaReceiver");
+      vTaskDelay(((sleepTime*1000)-0)/portTICK_PERIOD_MS);
+      Serial.println("Wake up LoRaReceiver");
     }
   }
 }
@@ -217,36 +224,36 @@ void TaskDatabaseManager(void) {
   Data dt;
 
   for(;;) {
-    if (xQueueReceive(DatabaseQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
-      if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
-        dt.temperature = getTemperatureInternal();
-        dt.sleepTime = valueFromQueue.substring(4).toInt();
-        EEPROM.put(addr, dt);
-        addr += (int)sizeof(dt);
-
-        if (addr > EEPROM.length()-1) {
-          // reset database when memory is full
-          addr = 2;
+    while (uxQueueMessagesWaiting(DatabaseQueue) > 0) {
+      if (xQueueReceive(DatabaseQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
+        if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
+          dt.temperature = getTemperatureInternal();
+          dt.sleepTime = valueFromQueue.substring(4).toInt();
           EEPROM.put(addr, dt);
           addr += (int)sizeof(dt);
+  
+          if (addr > EEPROM.length()-1) {
+            // reset database when memory is full
+            addr = 2;
+            EEPROM.put(addr, dt);
+            addr += (int)sizeof(dt);
+          }
+          
+          EEPROM.put(0, addr);
+          Serial.println("Stored data");
+          
+          xSemaphoreGive(SemaphoreHndl);
         }
-        
-        EEPROM.put(0, addr);
-        Serial.println("Stored data");
-        
-        xSemaphoreGive(SemaphoreHndl);
+  
+        xQueueSend(LoRaSenderQueue, &dt.temperature, portMAX_DELAY);
+  
+        Serial.println("Resuming LoRaSender");
+        vTaskResume(LoRaSenderHandle);
       }
-
-      xQueueSend(LoRaSenderQueue, &dt.temperature, portMAX_DELAY);
-
-      Serial.println("Resuming LoRaSender");
-      vTaskResume(LoRaSenderHandle);
     }
 
-    if (lowPowerOperationMode) {
-      Serial.println("Suspend DatabaseManager");
-      vTaskSuspend(NULL);
-    }
+    Serial.println("Suspend DatabaseManager");
+    vTaskSuspend(NULL);
   }
 }
 
@@ -254,16 +261,16 @@ void TaskLoRaSender(void) {
   int valueFromQueue;
   
   for(;;) {
-    if (xQueueReceive(LoRaSenderQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
-      LoRa.beginPacket();
-      LoRa.print(valueFromQueue);
-      LoRa.endPacket();
+    while (uxQueueMessagesWaiting(LoRaSenderQueue) > 0) {
+      if (xQueueReceive(LoRaSenderQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
+        LoRa.beginPacket();
+        LoRa.print(valueFromQueue);
+        LoRa.endPacket();
+      }
     }
 
-    if (lowPowerOperationMode) {
-      Serial.println("Suspend LoRaSender");
-      vTaskSuspend(NULL);
-    }
+    Serial.println("Suspend LoRaSender");
+    vTaskSuspend(NULL);
   }
 }
 
@@ -313,8 +320,9 @@ void TaskCommandManager(void) {
         }
         
       } else if (command == "3") {
-        Serial.println("low-power operation mode enabled");
-        lowPowerOperationMode = true;
+        Serial.println("Activating ultra low-power mode");
+        delay(200);
+        ultraLowPowerMode();
         
       } else if (command == "4") {
         if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
@@ -332,7 +340,7 @@ void TaskCommandManager(void) {
   }
 }
 
-void vApplicationIdleHook(void){
+void vApplicationIdleHook(void) {
   // disable ADC
   ADCSRA = 0;
 
