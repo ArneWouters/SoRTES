@@ -12,7 +12,7 @@
 - Week of 26-10-2020: -
 - Week of 02-11-2020: Time, Lab Session 2
 - Week of 09-11-2020: Energy, Lab Session 3
-- Week of 16-11-2020:
+- Week of 16-11-2020: Programming
 - Week of 23-11-2020:
 - Week of 30-11-2020:
 - Week of 04-12-2020:
@@ -21,7 +21,6 @@
 ---
 
 - Week of ?: Security
-- Week of ?: Programming
 - Week of ?: OS
 - Week of ?: Free RTOS
 - Week of ?: Practical Assignment 5

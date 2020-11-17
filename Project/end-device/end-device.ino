@@ -6,6 +6,7 @@
 #include <queue.h>
 #include <avr/sleep.h>
 #include <avr/power.h>
+#include <avr/wdt.h>
 
 #define SCK 15
 #define MISO 14
@@ -60,6 +61,12 @@ QueueHandle_t LoRaSenderQueue;
  *********/
 
 void setup() {
+  // Disable WDT
+  wdt_reset();
+  MCUSR &= ~(1<<WDRF);
+  WDTCSR |= (1<<WDCE) | (1<<WDE);
+  WDTCSR = 0x00;
+  
   DatabaseQueue = xQueueCreate(10, sizeof(String));
   LoRaSenderQueue = xQueueCreate(10, sizeof(int));
   
@@ -101,27 +108,23 @@ void printData(Data data) {
 
 void ultraLowPowerMode() {
   vTaskEndScheduler();
+  LoRa.end();
+
+  for (byte i = 0; i <= A5; i++) {
+    pinMode (i, OUTPUT);
+    digitalWrite (i, LOW);
+  }
+
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  cli();
 
   // disable ADC
   ADCSRA = 0;
-
-  // Disable USB interrupts
-  UDIEN  = 0b11111101;
-  UEIENX = 0b11011111;
   
-  // Stopping USB subsystems explicitly since power_all_disable() will not do that
-  USBCON |=  _BV(FRZCLK); // Freeze USB clock 
-  PLLCSR &= ~_BV(PLLE); // Disable USB PLL
-  USBCON &= ~_BV(OTGPADE);// Disable the OTG pad regulator
-  USBCON &= ~_BV(VBUSTE); // Disable the VBUS transition enable bit
-  UHWCON &= ~_BV(UVREGE); // Disable USB pad regulator
-  USBINT &= ~_BV(VBUSTI); // Clear the IVBUS Transition Interrupt flag
-  USBCON &= ~_BV(USBE); // Disable USB interface
-  UDCON  |=  _BV(DETACH); // Physically detach USB (by disconnecting internal pull-ups on D+ and D-)
-  
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  sleep_enable();
   power_all_disable();
+  sleep_enable();
+  sei();
+  
   sleep_cpu();
 
   sleep_disable();
@@ -203,12 +206,11 @@ void TaskLoRaReceiver(void) {
         firstPackageReceived = true;
       }
 
-      Serial.println("Resuming DatabaseManager");
+      // Resuming DatabaseManager
       vTaskResume(DatabaseManagerHandle);
 
-      Serial.println("Sleep LoRaReceiver");
+      // Sleeping
       vTaskDelay(((sleepTime*1000)-0)/portTICK_PERIOD_MS);
-      Serial.println("Wake up LoRaReceiver");
     }
   }
 }
@@ -240,19 +242,19 @@ void TaskDatabaseManager(void) {
           }
           
           EEPROM.put(0, addr);
-          Serial.println("Stored data");
-          
+
+          // release handle, all data stored
           xSemaphoreGive(SemaphoreHndl);
         }
   
         xQueueSend(LoRaSenderQueue, &dt.temperature, portMAX_DELAY);
   
-        Serial.println("Resuming LoRaSender");
+        // Resuming LoRaSender
         vTaskResume(LoRaSenderHandle);
       }
     }
 
-    Serial.println("Suspend DatabaseManager");
+    // suspend if all messages processed
     vTaskSuspend(NULL);
   }
 }
@@ -269,7 +271,7 @@ void TaskLoRaSender(void) {
       }
     }
 
-    Serial.println("Suspend LoRaSender");
+    // suspend if all messages processed
     vTaskSuspend(NULL);
   }
 }
@@ -277,6 +279,22 @@ void TaskLoRaSender(void) {
 void TaskCommandManager(void) {
   for(;;) {
     if (firstPackageReceived) {
+      cli();
+      // Disable USB interrupts
+      UDIEN  = 0b11111101;
+      UEIENX = 0b11011111;
+      
+      // Stopping USB subsystems explicitly since power_all_disable() will not do that
+      USBCON |=  _BV(FRZCLK); // Freeze USB clock 
+      PLLCSR &= ~_BV(PLLE); // Disable USB PLL
+      USBCON &= ~_BV(OTGPADE);// Disable the OTG pad regulator
+      USBCON &= ~_BV(VBUSTE); // Disable the VBUS transition enable bit
+      UHWCON &= ~_BV(UVREGE); // Disable USB pad regulator
+      USBINT &= ~_BV(VBUSTI); // Clear the IVBUS Transition Interrupt flag
+      USBCON &= ~_BV(USBE); // Disable USB interface
+      UDCON  |=  _BV(DETACH); // Physically detach USB (by disconnecting internal pull-ups on D+ and D-)
+      sei();
+      
       Serial.println("Disabled CommandManager");
       vTaskDelete(NULL);
     }
@@ -345,7 +363,9 @@ void vApplicationIdleHook(void) {
   ADCSRA = 0;
 
   set_sleep_mode( SLEEP_MODE_IDLE );
+  cli();
   sleep_enable();
+  sei();
   sleep_cpu();
 
   sleep_reset(); 
