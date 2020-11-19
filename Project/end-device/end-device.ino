@@ -62,10 +62,7 @@ QueueHandle_t LoRaSenderQueue;
 
 void setup() {
   // Disable WDT
-  wdt_reset();
-  MCUSR &= ~(1<<WDRF);
-  WDTCSR |= (1<<WDCE) | (1<<WDE);
-  WDTCSR = 0x00;
+  wdt_disable();
   
   DatabaseQueue = xQueueCreate(10, sizeof(String));
   LoRaSenderQueue = xQueueCreate(10, sizeof(int));
@@ -106,11 +103,33 @@ void printData(Data data) {
   Serial.println(" seconds");
 }
 
+void disableUSB() {
+  cli();
+  // Disable USB interrupts
+  UDIEN  = 0b11111101;
+  UEIENX = 0b11011111;
+  
+  // Stopping USB subsystems explicitly since power_all_disable() will not do that
+  USBCON |=  bit(FRZCLK); // Freeze USB clock 
+  PLLCSR &= ~bit(PLLE); // Disable USB PLL
+  USBCON &= ~bit(OTGPADE);// Disable the OTG pad regulator
+  USBCON &= ~bit(VBUSTE); // Disable the VBUS transition enable bit
+  UHWCON &= ~bit(UVREGE); // Disable USB pad regulator
+  USBINT &= ~bit(VBUSTI); // Clear the IVBUS Transition Interrupt flag
+  USBCON &= ~bit(USBE); // Disable USB interface
+  UDCON  |=  bit(DETACH); // Physically detach USB (by disconnecting internal pull-ups on D+ and D-)
+  sei();
+}
+
 void ultraLowPowerMode() {
   vTaskEndScheduler();
   LoRa.end();
 
-  for (byte i = 0; i <= A5; i++) {
+  if (!firstPackageReceived) {
+    disableUSB();
+  }
+
+  for (byte i = 0; i <= 32; i++) {
     pinMode (i, OUTPUT);
     digitalWrite (i, LOW);
   }
@@ -211,6 +230,8 @@ void TaskLoRaReceiver(void) {
 
       // Sleeping
       vTaskDelay(((sleepTime*1000)-0)/portTICK_PERIOD_MS);
+
+      LoRa.idle();
     }
   }
 }
@@ -263,6 +284,8 @@ void TaskLoRaSender(void) {
   int valueFromQueue;
   
   for(;;) {
+    LoRa.idle();
+    
     while (uxQueueMessagesWaiting(LoRaSenderQueue) > 0) {
       if (xQueueReceive(LoRaSenderQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
         LoRa.beginPacket();
@@ -279,22 +302,7 @@ void TaskLoRaSender(void) {
 void TaskCommandManager(void) {
   for(;;) {
     if (firstPackageReceived) {
-      cli();
-      // Disable USB interrupts
-      UDIEN  = 0b11111101;
-      UEIENX = 0b11011111;
-      
-      // Stopping USB subsystems explicitly since power_all_disable() will not do that
-      USBCON |=  _BV(FRZCLK); // Freeze USB clock 
-      PLLCSR &= ~_BV(PLLE); // Disable USB PLL
-      USBCON &= ~_BV(OTGPADE);// Disable the OTG pad regulator
-      USBCON &= ~_BV(VBUSTE); // Disable the VBUS transition enable bit
-      UHWCON &= ~_BV(UVREGE); // Disable USB pad regulator
-      USBINT &= ~_BV(VBUSTI); // Clear the IVBUS Transition Interrupt flag
-      USBCON &= ~_BV(USBE); // Disable USB interface
-      UDCON  |=  _BV(DETACH); // Physically detach USB (by disconnecting internal pull-ups on D+ and D-)
-      sei();
-      
+      disableUSB();
       Serial.println("Disabled CommandManager");
       vTaskDelete(NULL);
     }
@@ -361,6 +369,7 @@ void TaskCommandManager(void) {
 void vApplicationIdleHook(void) {
   // disable ADC
   ADCSRA = 0;
+  LoRa.sleep();
 
   set_sleep_mode( SLEEP_MODE_IDLE );
   cli();
