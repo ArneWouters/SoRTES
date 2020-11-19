@@ -10,11 +10,11 @@
 - Week of 12-10-2020: -
 - Week of 19-10-2020: IO, Lab Session 1
 - Week of 26-10-2020: -
-- Week of 02-11-2020: Time, Lab Session 2
+- Week of 02-11-2020: Time, Lab Session 2, Project Assignment
 - Week of 09-11-2020: Energy, Lab Session 3
 - Week of 16-11-2020: Programming
 - Week of 23-11-2020:
-- Week of 30-11-2020:
+- Week of 30-11-2020: Deadline Project
 - Week of 04-12-2020:
 - Week of 11-12-2020:
 
