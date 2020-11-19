@@ -20,6 +20,7 @@
 #define INCLUDE_vTaskSuspend 1
 #define INCLUDE_vTaskDelay 1
 
+
 /*********
  * Tasks *
  *********/
@@ -61,8 +62,7 @@ QueueHandle_t LoRaSenderQueue;
  *********/
 
 void setup() {
-  // Disable WDT
-  wdt_disable();
+  wdt_disable();  // Disable WDT
   
   DatabaseQueue = xQueueCreate(10, sizeof(String));
   LoRaSenderQueue = xQueueCreate(10, sizeof(int));
@@ -103,6 +103,7 @@ void printData(Data data) {
   Serial.println(" seconds");
 }
 
+
 void disableUSB() {
   cli();
   // Disable USB interrupts
@@ -120,6 +121,7 @@ void disableUSB() {
   UDCON  |=  bit(DETACH); // Physically detach USB (by disconnecting internal pull-ups on D+ and D-)
   sei();
 }
+
 
 void ultraLowPowerMode() {
   vTaskEndScheduler();
@@ -150,13 +152,9 @@ void ultraLowPowerMode() {
   power_all_enable();
 }
 
-int getTemperatureInternal() {
-  // For more details check Section 24 in the datasheet
-  // Sources: 
-  //   - https://syntheticphysical.wordpress.com/2014/01/23/atmega32u2-and-lm36dz-temperature-responses/
-  //   - https://www.avrfreaks.net/comment/2580401#comment-2580401
 
-  // Set the internal reference and mux for the ATmega32U4.
+int getTemperatureInternal() {
+  // Set the internal reference and mux .
   ADMUX = (1<<REFS1) | (1<<REFS0) | (1<<MUX2) | (1<<MUX1) | (1<<MUX0);
   ADCSRB |= (1 << MUX5); // enable the ADC
 
@@ -177,11 +175,16 @@ int getTemperatureInternal() {
   byte high = ADCH;
 
   double t = (high << 8) | low;
-  int offset = 5; // Temperature accuracy is +- 10, 5 is the value after calibration at room temperature
-  t = (t - 273 + offset); // Convert from Kelvin to Celcius plus Offset
+  int offset = 5; // 5 is the value after calibration at room temperature
+  t = (t - 273 + offset); // Convert from Kelvin to Celcius and add offset
 
   return t;
 }
+
+
+/****************
+ * LoRaReceiver *
+ ****************/
 
 void TaskLoRaReceiver(void) {
   Serial.println("Starting LoRa Receiver");
@@ -197,25 +200,18 @@ void TaskLoRaReceiver(void) {
   for(;;) {
     // check if 20 beacons received
     if (beaconCounter == beaconTreshold) {
-      Serial.println("Activating ultra low-power mode");
-      delay(200);
       ultraLowPowerMode();
     }
       
     int packetSize = LoRa.parsePacket();
     if (packetSize >= 5) {
       // received a packet with size 5 or more
-      Serial.print("Received packet '");
-
       String s = "";
   
       // read packet
       for (int i = 0; i < packetSize; i++) {
         s += (char)LoRa.read();
       }
-      
-      Serial.print(s);
-      Serial.println("'");
 
       int sleepTime = s.substring(4).toInt();
       xQueueSend(DatabaseQueue, &s, portMAX_DELAY);
@@ -231,11 +227,17 @@ void TaskLoRaReceiver(void) {
       // Sleeping
       vTaskDelay(((sleepTime*1000)-0)/portTICK_PERIOD_MS);
 
+      // Put LoRa moduel back into standby mode
       LoRa.idle();
     }
   }
 }
 
+
+/*******************
+ * DatabaseManager *
+ *******************/
+ 
 void TaskDatabaseManager(void) {
   if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
     EEPROM.get(0, addr);
@@ -280,6 +282,11 @@ void TaskDatabaseManager(void) {
   }
 }
 
+
+/**************
+ * LoRaSender *
+ **************/
+ 
 void TaskLoRaSender(void) {
   int valueFromQueue;
   
@@ -299,6 +306,11 @@ void TaskLoRaSender(void) {
   }
 }
 
+
+/******************
+ * CommandManager *
+ ******************/
+ 
 void TaskCommandManager(void) {
   for(;;) {
     if (firstPackageReceived) {
@@ -324,7 +336,6 @@ void TaskCommandManager(void) {
             xSemaphoreGive(SemaphoreHndl);
           }
         }
-
       } else if (command == "2") {
         if (addr > 2) {
           int address = 2;
@@ -344,7 +355,6 @@ void TaskCommandManager(void) {
             xSemaphoreGive(SemaphoreHndl);
           }
         }
-        
       } else if (command == "3") {
         Serial.println("Activating ultra low-power mode");
         delay(200);
@@ -358,7 +368,6 @@ void TaskCommandManager(void) {
 
           xSemaphoreGive(SemaphoreHndl);
         }
-
       } else {
         Serial.println("Invalid command.");
       }
@@ -366,6 +375,11 @@ void TaskCommandManager(void) {
   }
 }
 
+
+/***********************
+ * ApplicationIdleHook *
+ ***********************/
+ 
 void vApplicationIdleHook(void) {
   // disable ADC
   ADCSRA = 0;
