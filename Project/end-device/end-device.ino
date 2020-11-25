@@ -106,19 +106,15 @@ void printData(Data data) {
 
 void disableUSB() {
   cli();
-  // Disable USB interrupts
-  UDIEN  = 0b11111101;
-  UEIENX = 0b11011111;
-  
-  // Stopping USB subsystems explicitly since power_all_disable() will not do that
-  USBCON |=  bit(FRZCLK); // Freeze USB clock 
-  PLLCSR &= ~bit(PLLE); // Disable USB PLL
-  USBCON &= ~bit(OTGPADE);// Disable the OTG pad regulator
-  USBCON &= ~bit(VBUSTE); // Disable the VBUS transition enable bit
-  UHWCON &= ~bit(UVREGE); // Disable USB pad regulator
-  USBINT &= ~bit(VBUSTI); // Clear the IVBUS Transition Interrupt flag
-  USBCON &= ~bit(USBE); // Disable USB interface
-  UDCON  |=  bit(DETACH); // Physically detach USB (by disconnecting internal pull-ups on D+ and D-)
+  // Power Off the USB interface because power_all_disable() will not do that
+  USBCON |=  bit(FRZCLK);
+  PLLCSR &= ~bit(PLLE);
+  USBCON &= ~bit(OTGPADE);
+  USBCON &= ~bit(VBUSTE);
+  UHWCON &= ~bit(UVREGE);
+  USBINT &= ~bit(VBUSTI);
+  USBCON &= ~bit(USBE);
+  UDCON  |=  bit(DETACH);
   sei();
 }
 
@@ -139,8 +135,7 @@ void ultraLowPowerMode() {
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   cli();
 
-  // disable ADC
-  ADCSRA = 0;
+  ADCSRA = 0; // disable ADC
   
   power_all_disable();
   sleep_enable();
@@ -225,7 +220,7 @@ void TaskLoRaReceiver(void) {
       vTaskResume(DatabaseManagerHandle);
 
       // Sleeping
-      vTaskDelay(((sleepTime*1000)-0)/portTICK_PERIOD_MS);
+      vTaskDelay(((sleepTime*1000)+300)/portTICK_PERIOD_MS);
 
       // Put LoRa moduel back into standby mode
       LoRa.idle();
@@ -381,11 +376,10 @@ void TaskCommandManager(void) {
  ***********************/
  
 void vApplicationIdleHook(void) {
-  // disable ADC
-  ADCSRA = 0;
+  ADCSRA = 0; // disable ADC
   LoRa.sleep();
 
-  set_sleep_mode( SLEEP_MODE_IDLE );
+  set_sleep_mode(SLEEP_MODE_IDLE);
   cli();
   sleep_enable();
   sei();
