@@ -32,22 +32,92 @@ void TaskCommandManager(void);
 void vApplicationIdleHook(void);
 
 
-/********
- * Data *
- ********/
+/******************
+ * CircularBuffer *
+ ******************/
 
 struct Data {
   int temperature;  // temperature of the internal sensor
   int sleepTime; // delay in seconds for the next beacon
 };
 
+class CircularBuffer {
+private:
+  int BUFFER_START_ADDRESS = 4;
+  int BUFFER_MAX_DATA_BLOCKS = (EEPROM.length()-1-BUFFER_START_ADDRESS)/(int)sizeof(Data);
+  int write_ptr;
+  int read_ptr;
+  int data_blocks;
+
+public:
+  CircularBuffer() {
+    EEPROM.get(0, write_ptr);
+    EEPROM.get(2, data_blocks);
+
+    if (write_ptr < BUFFER_START_ADDRESS || data_blocks < 0) {
+      write_ptr = BUFFER_START_ADDRESS;
+      data_blocks = 0;
+      EEPROM.put(0, write_ptr);
+      EEPROM.put(2, data_blocks);
+    }
+
+    read_ptr = write_ptr - (data_blocks*(int)sizeof(Data));
+
+    if (read_ptr < BUFFER_START_ADDRESS) {
+      read_ptr += EEPROM.length()-BUFFER_START_ADDRESS;
+    }
+  }
+
+  int getDataBlocks() {
+    return data_blocks;
+  }
+
+  bool empty() {
+    return data_blocks == 0;
+  }
+
+  void reset() {
+    write_ptr = BUFFER_START_ADDRESS;
+    read_ptr = BUFFER_START_ADDRESS;
+    data_blocks = 0;
+    EEPROM.put(0, write_ptr);
+    EEPROM.put(2, data_blocks);
+  }
+
+  void storeData(Data &d) {
+    if (write_ptr + (int)sizeof(d)-1 >= EEPROM.length()) {
+      write_ptr = BUFFER_START_ADDRESS;
+    }
+
+    EEPROM.put(write_ptr, d);
+    write_ptr += (int)sizeof(d);
+    EEPROM.put(0, write_ptr);
+
+    if (data_blocks < BUFFER_MAX_DATA_BLOCKS) {
+      data_blocks++;
+      EEPROM.put(2, data_blocks);
+    }
+  }
+
+  Data readData(int idx) {
+    int address = read_ptr+(idx*(int)sizeof(Data));
+
+    if (address >= EEPROM.length()) {
+      address -= EEPROM.length()+BUFFER_START_ADDRESS;
+    }
+
+    Data d;
+    EEPROM.get(address, d);
+    return d;
+  }
+};
 
 /***********
  * Globals *
  ***********/
 
 bool firstPackageReceived = false;
-int addr = 2;
+CircularBuffer db;
 TaskHandle_t LoRaReceiverHandle;
 TaskHandle_t DatabaseManagerHandle;
 TaskHandle_t LoRaSenderHandle;
@@ -66,13 +136,9 @@ void setup() {
   
   DatabaseQueue = xQueueCreate(10, sizeof(String));
   LoRaSenderQueue = xQueueCreate(10, sizeof(int));
+  db = CircularBuffer();
   
   Serial.begin(9600);
-
-  EEPROM.get(0, addr);
-  if (addr < 2 || addr > EEPROM.length()-1) {
-    addr = 2;
-  }
 
   if (DatabaseQueue != NULL || LoRaSenderQueue != NULL) {
     xTaskCreate(TaskLoRaReceiver, "LoRa Receiver", 128, NULL, 2, &LoRaReceiverHandle);
@@ -95,11 +161,11 @@ void loop() {}
  * Functions *
  *************/
 
-void printData(Data data) {
+void printData(Data &d) {
   Serial.print("Temperature: ");
-  Serial.print(data.temperature);
+  Serial.print(d.temperature);
   Serial.print(" - Next beacon: ");
-  Serial.print(data.sleepTime);
+  Serial.print(d.sleepTime);
   Serial.println(" seconds");
 }
 
@@ -233,36 +299,19 @@ void TaskLoRaReceiver(void) {
  * DatabaseManager *
  *******************/
  
-void TaskDatabaseManager(void) {
-  if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
-    EEPROM.get(0, addr);
-    
-    xSemaphoreGive(SemaphoreHndl);
-  }
-  
+void TaskDatabaseManager(void) { 
   String valueFromQueue;
   Data dt;
 
   for(;;) {
     while (uxQueueMessagesWaiting(DatabaseQueue) > 0) {
       if (xQueueReceive(DatabaseQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
+        dt.temperature = getTemperatureInternal();
+        dt.sleepTime = valueFromQueue.substring(4).toInt();
+        
         if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
-          dt.temperature = getTemperatureInternal();
-          dt.sleepTime = valueFromQueue.substring(4).toInt();
-          EEPROM.put(addr, dt);
-          addr += (int)sizeof(dt);
-  
-          if (addr > EEPROM.length()-1) {
-            // reset database when memory is full
-            addr = 2;
-            EEPROM.put(addr, dt);
-            addr += (int)sizeof(dt);
-          }
-          
-          EEPROM.put(0, addr);
-
-          // release handle, all data stored
-          xSemaphoreGive(SemaphoreHndl);
+          db.storeData(dt);
+          xSemaphoreGive(SemaphoreHndl); // release handle, all data stored
         }
   
         xQueueSend(LoRaSenderQueue, &dt.temperature, portMAX_DELAY);
@@ -319,36 +368,33 @@ void TaskCommandManager(void) {
       command.trim();
 
       if (command == "1") {
-        if (addr <= 2) {
-          Serial.println("Unable to print entry");
-        } else {
-          if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
-            Data data;
-            EEPROM.get(addr-(int)sizeof(Data), data);
-            Serial.print("Last value | ");
-            printData(data);
+        if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
+          int idx = db.getDataBlocks()-1;
 
-            xSemaphoreGive(SemaphoreHndl);
+          if (db.empty()) {
+            Serial.println("Database is empty.");
+          } else {
+            Data d = db.readData(idx);
+            Serial.print("Last value | ");
+            printData(d);
           }
+          xSemaphoreGive(SemaphoreHndl);
         }
       } else if (command == "2") {
-        if (addr > 2) {
-          int address = 2;
-          int i = 0;
-          Data data;
-
-          if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
-            while (address+(int)sizeof(Data) <= addr) {
+        if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
+          if (db.empty()) {
+            Serial.println("Database is empty.");
+          } else {
+            Data d;
+            
+            for (int i = 0; i < db.getDataBlocks(); i++) {
               Serial.print(i);
               Serial.print("| ");
-              EEPROM.get(address, data);
-              printData(data);
-              address += (int)sizeof(Data);
-              i++;
+              d = db.readData(i);
+              printData(d);
             }
-
-            xSemaphoreGive(SemaphoreHndl);
           }
+          xSemaphoreGive(SemaphoreHndl);
         }
       } else if (command == "3") {
         Serial.println("Activating ultra low-power mode");
@@ -358,8 +404,7 @@ void TaskCommandManager(void) {
       } else if (command == "4") {
         if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
           Serial.println("Resetting database");
-          addr = 2;
-          EEPROM.put(0, addr);
+          db.reset();
 
           xSemaphoreGive(SemaphoreHndl);
         }
