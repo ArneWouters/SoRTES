@@ -31,13 +31,14 @@
 The system consists of 4 tasks:
 \begin{itemize}
     \item LoRaReceiver
-    \item DatabaseManager
-    \item LoRaSender
+    \item DatabaseController
+    \item LoRaTransmitter
     \item CommandManager
 \end{itemize}
 
-There are 2 queues, the \textit{DatabaseQueue} and the \textit{LoRaSenderQueue}.
-We also have a semaphore that is required for every access to EEPROM.
+There are 2 queues, the \textit{DatabaseQueue} and the \textit{LoRaTransmitterQueue}.
+We also have a semaphore that is required for every access to the database.
+The database is implemented as a circular buffer using every address of the EEPROM.
 
 \subsection{LoRaReceiver}
 This task receives and reads incoming beacons. Packets with a size smaller than 5 will be ignored because
@@ -45,27 +46,24 @@ we assume the message of the beacon has a length of atleast 5 characters. The sy
 as long as they follow the format, that the first 4 characters are the gateway ID and the remaining characters are the time until the
 next beacon transmission in seconds. Once a beacon is received, the time until the next beacon $T$ is put in the \textit{DatabaseQueue} and
 the \textit{firstPackageReceived} flag is set to \textit{true}.
-Next the \textit{DatabaseManager} task is resumed and the task will go to sleep for $T*1000 + 300$ \si{\milli\second}.
+Next the \textit{DatabaseController} task is resumed and the task will go to sleep for $T*1000 + 300$ \si{\milli\second}.
 When the task processed 20 beacons, it will put the system in ultra low-power mode.
 
-\subsection{DatabaseManager}
-In the setup of the task, it takes the semaphore and reads the first 2 bytes of the EEPROM.
-These 2 bytes contain the address behind the last write in the EEPROM so it's the point where the task
-should start writing new values.
+\subsection{DatabaseController}
+This task makes data packages and stores them in the database.
 In the loop, the task reads values from the \textit{DatabaseQueue} and runs as long as there are items available in the queue.
 If the queue is empty, the task will suspend itself and only resume when the function \textit{vTaskResume()} is called in the \textit{LoRaReceiver}.
 The item in the queue gets dequeued. Next the task attempts to take the semaphore and waits for the semaphore if it isn't available.
 We get the temperature from the temperature sensor and then we write the temperature with the data from the queue to the database (EEPROM).
-After the write we update the address stored inside the program and the address stored in the first 2 bytes of the EEPROM.
-When the EEPROM is full, we reset and start writing from the first address again. After writing to the EEPROM, the semaphore is returned.
-The last step is putting the temperature into the \textit{LoRaSenderQueue} and resuming the \textit{LoRaSender} task.
+After storing the data in the database, the semaphore is returned.
+The last step is putting the temperature into the \textit{LoRaTransmitterQueue} and resuming the \textit{LoRaTransmitter} task.
 Now we have processed one item from the \textit{DatabaseQueue} and we can start the loop again if more items are available in the queue.
 
 \newpage
 
-\subsection{LoRaSender}
-This task reads values from the \textit{LoRaSenderQueue} and runs as long as there are items available in the queue.
-If the queue is empty, the task will suspend itself and only resume when the function \textit{vTaskResume()} is called in the \textit{DatabaseManager}.
+\subsection{LoRaTransmitter}
+This task reads values from the \textit{LoRaTransmitterQueue} and runs as long as there are items available in the queue.
+If the queue is empty, the task will suspend itself and only resume when the function \textit{vTaskResume()} is called in the \textit{DatabaseController}.
 This task reads the temperature value from the queue, makes a packet with the temperature as message and sends it back to the gateway (GW).
 
 \subsection{CommandManager}
@@ -74,10 +72,17 @@ There are 4 commands supported (the input for these functions is just the number
 \begin{enumerate}
     \item Read the latest temperature value and beacon details from database and print the output to the serial port
     \item Read all temperature values and beacon details from database and print the output to the serial port
+        (the oldest value will get printed first and the most recent value last)
     \item Turn on ultra low-power mode
     \item Reset the database
 \end{enumerate}
 When the first package is received, the task removes itself as a task and disables the usb interface to save power.
+
+\subsection{The Database}
+The database is a circular buffer that uses every address of the EEPROM.
+The first 4 bytes of the EEPROM are reserved and contain an address and the amount of data in the database.
+If the database gets full, we start overwriting the oldest data first.
+We reset the database by writing zero to the first 4 bytes of the EEPROM.
 
 \section{Varying real-time constraint}
 The task \textit{LoRaReceiver} will sleep for $T*1000 + 300$ \si{\milli\second} where $T$ is the time in the received beacon.
@@ -88,7 +93,7 @@ Usually the next beacon arrives 400-600 \si{\milli\second} after the \textit{LoR
 So we added an extra 300 \si{\milli\second} to $T$ to make the system more power efficient.
 
 \section{Synchronization}
-We use a semaphore for accessing the database. Only the \textit{DatabaseManager} and the \textit{CommandManager} acquire the semaphore.
+We use a semaphore for accessing the database. Only the \textit{DatabaseController} and the \textit{CommandManager} acquire the semaphore.
 The semaphore always gets returned so a task will never get suspended or deleted before they release the semaphore.
 
 \newpage

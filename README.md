@@ -18,15 +18,13 @@
 - Week of 09-11-2020: Energy, Lab Session 3
 - Week of 16-11-2020: Programming
 - Week of 23-11-2020:
-- Week of 30-11-2020:
+- Week of 30-11-2020: OS, FreeRTOS
 - Week of 04-12-2020:
 - Week of 11-12-2020:
 
 ---
 
 - Week of ?: Security
-- Week of ?: OS
-- Week of ?: Free RTOS
 - Week of ?: Scheduling
 
 ## LoRa32u4 II 868MHz LoRa development board

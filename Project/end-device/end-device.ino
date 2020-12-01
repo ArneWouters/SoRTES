@@ -26,8 +26,8 @@
  *********/
 
 void TaskLoRaReceiver(void);
-void TaskDatabaseManager(void);
-void TaskLoRaSender(void);
+void TaskDatabaseController(void);
+void TaskLoRaTransmitter(void);
 void TaskCommandManager(void);
 void vApplicationIdleHook(void);
 
@@ -85,17 +85,20 @@ public:
   }
 
   void storeData(Data &d) {
+    EEPROM.put(write_ptr, d);
+    write_ptr += (int)sizeof(d);
+
     if (write_ptr + (int)sizeof(d)-1 >= EEPROM.length()) {
       write_ptr = BUFFER_START_ADDRESS;
     }
 
-    EEPROM.put(write_ptr, d);
-    write_ptr += (int)sizeof(d);
     EEPROM.put(0, write_ptr);
 
     if (data_blocks < BUFFER_MAX_DATA_BLOCKS) {
       data_blocks++;
       EEPROM.put(2, data_blocks);
+    } else {
+      read_ptr = write_ptr;
     }
   }
 
@@ -103,7 +106,7 @@ public:
     int address = read_ptr+(idx*(int)sizeof(Data));
 
     if (address >= EEPROM.length()) {
-      address -= EEPROM.length()+BUFFER_START_ADDRESS;
+      address -= EEPROM.length()-BUFFER_START_ADDRESS;
     }
 
     Data d;
@@ -112,6 +115,7 @@ public:
   }
 };
 
+
 /***********
  * Globals *
  ***********/
@@ -119,12 +123,12 @@ public:
 bool firstPackageReceived = false;
 CircularBuffer db;
 TaskHandle_t LoRaReceiverHandle;
-TaskHandle_t DatabaseManagerHandle;
-TaskHandle_t LoRaSenderHandle;
+TaskHandle_t DatabaseControllerHandle;
+TaskHandle_t LoRaTransmitterHandle;
 TaskHandle_t CommandManagerHandle;
 SemaphoreHandle_t SemaphoreHndl;
 QueueHandle_t DatabaseQueue;
-QueueHandle_t LoRaSenderQueue;
+QueueHandle_t LoRaTransmitterQueue;
 
 
 /*********
@@ -135,15 +139,15 @@ void setup() {
   wdt_disable();  // Disable WDT
   
   DatabaseQueue = xQueueCreate(10, sizeof(String));
-  LoRaSenderQueue = xQueueCreate(10, sizeof(int));
+  LoRaTransmitterQueue = xQueueCreate(10, sizeof(int));
   db = CircularBuffer();
   
   Serial.begin(9600);
 
-  if (DatabaseQueue != NULL || LoRaSenderQueue != NULL) {
+  if (DatabaseQueue != NULL || LoRaTransmitterQueue != NULL) {
     xTaskCreate(TaskLoRaReceiver, "LoRa Receiver", 128, NULL, 2, &LoRaReceiverHandle);
-    xTaskCreate(TaskDatabaseManager, "Database Manager", 128, NULL, 1, &DatabaseManagerHandle);
-    xTaskCreate(TaskLoRaSender, "LoRa Sender", 128, NULL, 1, &LoRaSenderHandle);
+    xTaskCreate(TaskDatabaseController, "Database Manager", 128, NULL, 1, &DatabaseControllerHandle);
+    xTaskCreate(TaskLoRaTransmitter, "LoRa Sender", 128, NULL, 1, &LoRaTransmitterHandle);
     xTaskCreate(TaskCommandManager, "Command Manager", 128, NULL, 2, &CommandManagerHandle);
   }
 
@@ -215,21 +219,17 @@ void ultraLowPowerMode() {
 
 
 int getTemperatureInternal() {
-  // Set the internal reference and mux .
   ADMUX = (1<<REFS1) | (1<<REFS0) | (1<<MUX2) | (1<<MUX1) | (1<<MUX0);
-  ADCSRB |= (1 << MUX5); // enable the ADC
+  ADCSRB |= (1 << MUX5);
 
   delay(2); // Wait for internal reference to settle
 
-  // Start the conversion
-  ADCSRA |= bit(ADSC); // First reading
-
-  // Detect end-of-conversion
+  // First reading
+  ADCSRA |= bit(ADSC);
   while (bit_is_set(ADCSRA,ADSC));
 
-  ADCSRA |= bit(ADSC); // Second reading
-
-  // Detect end-of-conversion
+  // Second reading
+  ADCSRA |= bit(ADSC);
   while (bit_is_set(ADCSRA,ADSC));
 
   byte low = ADCL;
@@ -282,24 +282,19 @@ void TaskLoRaReceiver(void) {
         firstPackageReceived = true;
       }
 
-      // Resuming DatabaseManager
-      vTaskResume(DatabaseManagerHandle);
-
-      // Sleeping
-      vTaskDelay(((sleepTime*1000)+300)/portTICK_PERIOD_MS);
-
-      // Put LoRa moduel back into standby mode
-      LoRa.idle();
+      vTaskResume(DatabaseControllerHandle);
+      vTaskDelay(((sleepTime*1000)+300)/portTICK_PERIOD_MS); // Sleeping
+      LoRa.idle(); // Put LoRa module back into standby mode
     }
   }
 }
 
 
-/*******************
- * DatabaseManager *
- *******************/
+/**********************
+ * DatabaseController *
+ **********************/
  
-void TaskDatabaseManager(void) { 
+void TaskDatabaseController(void) { 
   String valueFromQueue;
   Data dt;
 
@@ -311,42 +306,38 @@ void TaskDatabaseManager(void) {
         
         if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
           db.storeData(dt);
-          xSemaphoreGive(SemaphoreHndl); // release handle, all data stored
+          xSemaphoreGive(SemaphoreHndl); // release semaphore
         }
   
-        xQueueSend(LoRaSenderQueue, &dt.temperature, portMAX_DELAY);
-  
-        // Resuming LoRaSender
-        vTaskResume(LoRaSenderHandle);
+        xQueueSend(LoRaTransmitterQueue, &dt.temperature, portMAX_DELAY);
+        vTaskResume(LoRaTransmitterHandle);
       }
     }
 
-    // suspend if all messages processed
-    vTaskSuspend(NULL);
+    vTaskSuspend(NULL); // suspend when all messages processed
   }
 }
 
 
-/**************
- * LoRaSender *
- **************/
+/*******************
+ * LoRaTransmitter *
+ *******************/
  
-void TaskLoRaSender(void) {
+void TaskLoRaTransmitter(void) {
   int valueFromQueue;
   
   for(;;) {
     LoRa.idle();
     
-    while (uxQueueMessagesWaiting(LoRaSenderQueue) > 0) {
-      if (xQueueReceive(LoRaSenderQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
+    while (uxQueueMessagesWaiting(LoRaTransmitterQueue) > 0) {
+      if (xQueueReceive(LoRaTransmitterQueue, &valueFromQueue, portMAX_DELAY) == pdPASS) {
         LoRa.beginPacket();
         LoRa.print(valueFromQueue);
         LoRa.endPacket();
       }
     }
 
-    // suspend if all messages processed
-    vTaskSuspend(NULL);
+    vTaskSuspend(NULL); // suspend when all messages processed
   }
 }
 
