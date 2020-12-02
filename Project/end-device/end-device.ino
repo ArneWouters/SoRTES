@@ -136,8 +136,6 @@ QueueHandle_t LoRaTransmitterQueue;
  *********/
 
 void setup() {
-  wdt_disable();  // Disable WDT
-  
   DatabaseQueue = xQueueCreate(10, sizeof(String));
   LoRaTransmitterQueue = xQueueCreate(10, sizeof(int));
   db = CircularBuffer();
@@ -175,23 +173,16 @@ void printData(Data &d) {
 
 
 void disableUSB() {
-  cli();
-  // Power Off the USB interface because power_all_disable() will not do that
   USBCON |=  bit(FRZCLK);
   PLLCSR &= ~bit(PLLE);
-  USBCON &= ~bit(OTGPADE);
-  USBCON &= ~bit(VBUSTE);
-  UHWCON &= ~bit(UVREGE);
-  USBINT &= ~bit(VBUSTI);
   USBCON &= ~bit(USBE);
-  UDCON  |=  bit(DETACH);
-  sei();
 }
 
 
 void ultraLowPowerMode() {
   vTaskEndScheduler();
   LoRa.end();
+  wdt_disable();  // Disable WDT
 
   if (!firstPackageReceived) {
     disableUSB();
@@ -204,8 +195,6 @@ void ultraLowPowerMode() {
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   cli();
-
-  ADCSRA = 0; // disable ADC
   
   power_all_disable();
   sleep_enable();
@@ -222,7 +211,7 @@ int getTemperatureInternal() {
   ADMUX = (1<<REFS1) | (1<<REFS0) | (1<<MUX2) | (1<<MUX1) | (1<<MUX0);
   ADCSRB |= (1 << MUX5);
 
-  delay(2); // Wait for internal reference to settle
+  delay(2);  // Wait for internal reference to settle
 
   // First reading
   ADCSRA |= bit(ADSC);
@@ -236,8 +225,8 @@ int getTemperatureInternal() {
   byte high = ADCH;
 
   double t = (high << 8) | low;
-  int offset = 5; // 5 is the value after calibration at room temperature
-  t = (t - 273 + offset); // Convert from Kelvin to Celcius and add offset
+  int offset = 5;  // 5 is the value after calibration at room temperature
+  t = (t - 273 + offset);  // Convert from Kelvin to Celcius and add offset
 
   return t;
 }
@@ -283,8 +272,8 @@ void TaskLoRaReceiver(void) {
       }
 
       vTaskResume(DatabaseControllerHandle);
-      vTaskDelay(((sleepTime*1000)+300)/portTICK_PERIOD_MS); // Sleeping
-      LoRa.idle(); // Put LoRa module back into standby mode
+      vTaskDelay(((sleepTime*1000)+300)/portTICK_PERIOD_MS);  // Sleeping
+      LoRa.idle();  // Put LoRa module back into standby mode
     }
   }
 }
@@ -306,7 +295,7 @@ void TaskDatabaseController(void) {
         
         if (xSemaphoreTake(SemaphoreHndl, portMAX_DELAY) == pdTRUE) {
           db.storeData(dt);
-          xSemaphoreGive(SemaphoreHndl); // release semaphore
+          xSemaphoreGive(SemaphoreHndl);  // release semaphore
         }
   
         xQueueSend(LoRaTransmitterQueue, &dt.temperature, portMAX_DELAY);
@@ -314,7 +303,7 @@ void TaskDatabaseController(void) {
       }
     }
 
-    vTaskSuspend(NULL); // suspend when all messages processed
+    vTaskSuspend(NULL);  // suspend when all messages processed
   }
 }
 
@@ -337,7 +326,7 @@ void TaskLoRaTransmitter(void) {
       }
     }
 
-    vTaskSuspend(NULL); // suspend when all messages processed
+    vTaskSuspend(NULL);  // suspend when all messages processed
   }
 }
 
@@ -349,8 +338,8 @@ void TaskLoRaTransmitter(void) {
 void TaskCommandManager(void) {
   for(;;) {
     if (firstPackageReceived) {
+      Serial.end();
       disableUSB();
-      Serial.println("Disabled CommandManager");
       vTaskDelete(NULL);
     }
     
@@ -390,6 +379,7 @@ void TaskCommandManager(void) {
       } else if (command == "3") {
         Serial.println("Activating ultra low-power mode");
         delay(200);
+        Serial.end();
         ultraLowPowerMode();
         
       } else if (command == "4") {
@@ -412,7 +402,7 @@ void TaskCommandManager(void) {
  ***********************/
  
 void vApplicationIdleHook(void) {
-  ADCSRA = 0; // disable ADC
+  ADCSRA = 0;  // disable ADC
   LoRa.sleep();
 
   set_sleep_mode(SLEEP_MODE_IDLE);

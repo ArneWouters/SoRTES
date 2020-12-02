@@ -104,6 +104,7 @@ When there are no tasks active, the system goes into the \textit{vApplicationIdl
 Here we turn off the ADC (Analog to Digital Converter),
 put the LoRa module in sleep mode and the microcontroller (MCU) in Idle mode.
 This leads to a power consumption of $\sim \SI{2.90}{\milli\ampere}$.
+Remember that the usb interface is also turned off.
 We leave the low-power operation mode as soon as the \textit{LoRaReceiver} task gets active again.
 
 \subsection{Ultra low-power mode}
