@@ -173,7 +173,7 @@ void printData(Data &d) {
 
 
 void disableUSB() {
-  USBCON |=  bit(FRZCLK);
+  USBCON |= bit(FRZCLK);
   PLLCSR &= ~bit(PLLE);
   USBCON &= ~bit(USBE);
 }
@@ -194,8 +194,14 @@ void ultraLowPowerMode() {
   }
 
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-  cli();
   
+  cli();
+  ADCSRA = 0;  // disable ADC
+  ACSR |= bit(ACD);  // disable analog comparator
+  ACSR &= ~bit(ACIE);
+  MCUCR |= bit(JTD);  // disable OCD
+  TWCR &= ~bit(TWEN);  // disable TWI
+  SPCR &= ~bit(SPE);  // disable SPI
   power_all_disable();
   sleep_enable();
   sei();
@@ -208,8 +214,8 @@ void ultraLowPowerMode() {
 
 
 int getTemperatureInternal() {
-  ADMUX = (1<<REFS1) | (1<<REFS0) | (1<<MUX2) | (1<<MUX1) | (1<<MUX0);
-  ADCSRB |= (1 << MUX5);
+  ADMUX = bit(REFS1)|bit(REFS0)|bit(MUX2)|bit(MUX1)|bit(MUX0);
+  ADCSRB |= bit(MUX5);
 
   delay(2);  // Wait for internal reference to settle
 
