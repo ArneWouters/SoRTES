@@ -378,6 +378,7 @@ void TaskCommandManager(void) {
               Serial.print("| ");
               d = db.readData(i);
               printData(d);
+              delay(1);  // prevents reading eeprom too fast
             }
           }
           xSemaphoreGive(SemaphoreHndl);

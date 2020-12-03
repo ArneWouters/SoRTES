@@ -37,16 +37,22 @@ The system consists of 4 tasks:
 \end{itemize}
 
 There are 2 queues, the \textit{DatabaseQueue} and the \textit{LoRaTransmitterQueue}.
-We also have a semaphore that is required for every access to the database.
+The first queue is used for communication from \textit{LoRaReceiver} to the \textit{DatabaseController} and the
+other one is used for communication from the \textit{DatabaseController} to the \textit{LoRaTransmitter}.
+The \textit{LoRaReceiver} has the highest priority, since this is the most important task.
+The \textit{DatabaseController} has the same priority, because they have to run at the same time in the beginning.
+The other two tasks both have the same priority but it's one priority lower then the \textit{LoRaReceiver}.
+There is also a semaphore that is required for every access to the database.
 The database is implemented as a circular buffer using every address of the EEPROM.
+In the database we store a pair that contains the time until the next beacon and the temperature read from the sensor.
 
 \subsection{LoRaReceiver}
 This task receives and reads incoming beacons. Packets with a size smaller than 5 will be ignored because
-we assume the message of the beacon has a length of atleast 5 characters. The system can handle packets with more characters
+we assume that the message of the beacon has a length of atleast 5 characters. The system can handle packets with more characters
 as long as they follow the format, that the first 4 characters are the gateway ID and the remaining characters are the time until the
-next beacon transmission in seconds. Once a beacon is received, the time until the next beacon $T$ is put in the \textit{DatabaseQueue} and
+next beacon transmission in seconds. Once a beacon is received, the time $t$ until the next beacon is put in the \textit{DatabaseQueue} and
 the \textit{firstPackageReceived} flag is set to \textit{true}.
-Next the \textit{DatabaseController} task is resumed and the task will go to sleep for $T*1000 + 300$ \si{\milli\second}.
+Next the \textit{DatabaseController} task is resumed and the task will go to sleep for $t*1000 + 300$ \si{\milli\second}.
 When the task processed 20 beacons, it will put the system in ultra low-power mode.
 
 \subsection{DatabaseController}
@@ -77,26 +83,29 @@ There are 4 commands supported (the input for these functions is just the number
     \item Reset the database
 \end{enumerate}
 When the first package is received, the task removes itself as a task and disables the usb interface to save power.
+For command 1, 2 and 4, the task has to take the semaphore because it has to access the database.
 
 \subsection{The Database}
 The database is a circular buffer that uses every address of the EEPROM.
 The first 4 bytes of the EEPROM are reserved and contain an address and the amount of data in the database.
 If the database gets full, we start overwriting the oldest data first.
 We reset the database by writing zero to the first 4 bytes of the EEPROM.
+Every access to the database requires taking the semaphore, to keep the data consistent.
 
 \section{Varying real-time constraint}
-The task \textit{LoRaReceiver} will sleep for $T*1000 + 300$ \si{\milli\second} where $T$ is the time in the received beacon.
+The task \textit{LoRaReceiver} will sleep for $t*1000 + 300$ \si{\milli\second} where $t$ is the time in the received beacon.
 When the task wakes up again, it resumes the LoRa module (because it goes into sleep mode when the system is in low-power operation mode)
-and is ready again to accept beacons. $T$ is not the duration that the whole system will be in low-power operation mode.
+and is ready again to accept beacons. $t$ is not the duration that the whole system will be in low-power operation mode.
 The system only goes in low-power operation mode when all other tasks are finished.
 Usually the next beacon arrives 400-600 \si{\milli\second} after the \textit{LoRaReceiver} is ready.
-So we added an extra 300 \si{\milli\second} to $T$ to make the system more power efficient.
+So we added an extra 300 \si{\milli\second} to $t$ to make the system more power efficient.
+
+\newpage
 
 \section{Synchronization}
 We use a semaphore for accessing the database. Only the \textit{DatabaseController} and the \textit{CommandManager} acquire the semaphore.
-The semaphore always gets returned so a task will never get suspended or deleted before they release the semaphore.
-
-\newpage
+The semaphore will always get returned by the task before it gets suspended or deleted so tasks won't get stuck waiting on a semphore
+that isn't going to be released.
 
 \section{Power consumption}
 \subsection{Low-power operation mode}
@@ -110,9 +119,9 @@ We leave the low-power operation mode as soon as the \textit{LoRaReceiver} task 
 \subsection{Ultra low-power mode}
 After receiving 20 beacons or after executing the third command, the system goes into ultra low-power mode.
 First we remove the task scheduler and disable the LoRa module.
-Next we disable the usb interface (if the third command was used), turn off ADC and set all pins to output and low.
+Next we disable the usb interface (if the third command was used), turn off ADC, disable WDT and set all pins to output and low.
 We put the MCU in power down mode and use the function \textit{power\_all\_disable()} to disable all modules.
-Here we have a power consumption of $\sim \SI{814}{\micro\ampere}$.
+Here we have a power consumption of $\sim \SI{820}{\micro\ampere}$.
 
 
 \end{document}
