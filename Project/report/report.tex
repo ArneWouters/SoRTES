@@ -52,7 +52,9 @@ we assume that the message of the beacon has a length of at least 5 characters. 
 as long as they follow the format, that the first 4 characters are the gateway ID and the remaining characters are the time until the
 next beacon transmission in seconds. Once a beacon is received, the time $t$ until the next beacon is put in the \textit{DatabaseQueue} and
 the \textit{firstPackageReceived} flag is set to \textit{true}.
-Next the \textit{DatabaseController} task is resumed and the task will go to sleep for $t*1000 + 300$ \si{\milli\second}.
+Next the \textit{DatabaseController} task is resumed and the task will go to sleep for $t*1000 - \textit{delayBuffer}$ \si{\milli\second}.
+We set the \textit{delayBuffer} to \SI{200}{\milli\second} to make sure we don't miss the next beacon.
+After resuming the task, the LoRa module and ADC is turned on again.
 When the task processed 20 beacons, it will put the system in ultra low-power mode.
 
 \subsection{DatabaseController}
@@ -93,12 +95,13 @@ We reset the database by writing zero to the first 4 bytes of the EEPROM.
 Every access to the database requires taking the semaphore, to keep the data consistent.
 
 \section{Varying real-time constraint}
-The task \textit{LoRaReceiver} will sleep for $t*1000 + 300$ \si{\milli\second} where $t$ is the time in the received beacon.
+The task \textit{LoRaReceiver} will sleep for $t*1000 - \textit{delayBuffer}$ \si{\milli\second} where $t$ is the time in the received beacon.
+The \textit{delayBuffer} is set to \SI{200}{\milli\second} to prevent missing beacons.
 When the task wakes up again, it resumes the LoRa module (because it goes into sleep mode when the system is in low-power operation mode)
 and is ready again to accept beacons. $t$ is not the duration that the whole system will be in low-power operation mode.
 The system only goes in low-power operation mode when all other tasks are finished.
-Usually the next beacon arrives 400-600 \si{\milli\second} after the \textit{LoRaReceiver} is ready.
-So we added an extra 300 \si{\milli\second} to $t$ to make the system more power efficient.
+We can fine tune the \textit{delayBuffer} to be more power effcient but this requires detailed knowledge of the exact time
+we receive beacons.
 
 \newpage
 
@@ -114,7 +117,8 @@ Here we turn off the ADC (Analog to Digital Converter),
 put the LoRa module in sleep mode and the microcontroller (MCU) in Idle mode.
 This leads to a power consumption of $\sim \SI{2.90}{\milli\ampere}$.
 Remember that the usb interface is also turned off.
-We leave the low-power operation mode as soon as the \textit{LoRaReceiver} task gets active again.
+We leave the low-power operation mode as soon as the \textit{LoRaReceiver} task gets active again and
+turn on the LoRa module and ADC.
 
 \subsection{Ultra low-power mode}
 After receiving 20 beacons or after executing the third command, the system goes into ultra low-power mode.
