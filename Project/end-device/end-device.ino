@@ -44,7 +44,8 @@ struct Data {
 class CircularBuffer {
 private:
   int BUFFER_START_ADDRESS = 4;
-  int BUFFER_MAX_DATA_BLOCKS = (EEPROM.length()-1-BUFFER_START_ADDRESS)/(int)sizeof(Data);
+  int BUFFER_LENGTH = EEPROM.length();
+  int BUFFER_MAX_DATA_BLOCKS = (BUFFER_LENGTH-1-BUFFER_START_ADDRESS)/(int)sizeof(Data);
   int write_ptr;
   int read_ptr;
   int data_blocks;
@@ -64,7 +65,7 @@ public:
     read_ptr = write_ptr - (data_blocks*(int)sizeof(Data));
 
     if (read_ptr < BUFFER_START_ADDRESS) {
-      read_ptr += EEPROM.length()-BUFFER_START_ADDRESS;
+      read_ptr += BUFFER_LENGTH-BUFFER_START_ADDRESS;
     }
   }
 
@@ -88,7 +89,7 @@ public:
     EEPROM.put(write_ptr, d);
     write_ptr += (int)sizeof(d);
 
-    if (write_ptr + (int)sizeof(d)-1 >= EEPROM.length()) {
+    if (write_ptr + (int)sizeof(d)-1 >= BUFFER_LENGTH) {
       write_ptr = BUFFER_START_ADDRESS;
     }
 
@@ -105,8 +106,8 @@ public:
   Data readData(int idx) {
     int address = read_ptr+(idx*(int)sizeof(Data));
 
-    if (address >= EEPROM.length()) {
-      address -= EEPROM.length()-BUFFER_START_ADDRESS;
+    if (address >= BUFFER_LENGTH) {
+      address -= BUFFER_LENGTH-BUFFER_START_ADDRESS;
     }
 
     Data d;

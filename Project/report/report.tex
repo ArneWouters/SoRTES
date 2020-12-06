@@ -82,7 +82,7 @@ There are 4 commands supported (the input for these functions is just the number
     \item Read all temperature values and beacon details from database and print the output to the serial port
         (the oldest value will get printed first and the most recent value last)
     \item Turn on ultra low-power mode
-    \item Reset the database
+    \item Reset the database (this should be done after flashing the program for the first time)
 \end{enumerate}
 When the first package is received, the task removes itself as a task and disables the usb interface to save power.
 For command 1, 2 and 4, the task has to take the semaphore because it has to access the database.
