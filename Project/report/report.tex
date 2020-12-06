@@ -48,7 +48,7 @@ In the database we store a pair that contains the time until the next beacon and
 
 \subsection{LoRaReceiver}
 This task receives and reads incoming beacons. Packets with a size smaller than 5 will be ignored because
-we assume that the message of the beacon has a length of atleast 5 characters. The system can handle packets with more characters
+we assume that the message of the beacon has a length of at least 5 characters. The system can handle packets with more characters
 as long as they follow the format, that the first 4 characters are the gateway ID and the remaining characters are the time until the
 next beacon transmission in seconds. Once a beacon is received, the time $t$ until the next beacon is put in the \textit{DatabaseQueue} and
 the \textit{firstPackageReceived} flag is set to \textit{true}.
@@ -104,7 +104,7 @@ So we added an extra 300 \si{\milli\second} to $t$ to make the system more power
 
 \section{Synchronization}
 We use a semaphore for accessing the database. Only the \textit{DatabaseController} and the \textit{CommandManager} acquire the semaphore.
-The semaphore will always get returned by the task before it gets suspended or deleted so tasks won't get stuck waiting on a semphore
+The semaphore will always get returned by the task before it gets suspended or deleted so tasks won't get stuck waiting on a semaphore
 that isn't going to be released.
 
 \section{Power consumption}
@@ -121,6 +121,7 @@ After receiving 20 beacons or after executing the third command, the system goes
 First we remove the task scheduler and disable the LoRa module.
 Next we disable the usb interface (if the third command was used), turn off ADC, disable WDT and set all pins to output and low.
 We put the MCU in power down mode and use the function \textit{power\_all\_disable()} to disable all modules.
+This function from the AVR library will set the bits for us in the power registers so that everything is turned off.
 Here we have a power consumption of $\sim \SI{820}{\micro\ampere}$.
 
 
