@@ -6,7 +6,7 @@
 
 ## Project
 - SoRTES Project: Time-Synchronized Embedded Device
-- Deadline: **Thursday 3 December 2020, 23:59**
+- Deadline: **Thursday 7 December 2020, 09:00**
 
 ## Schedule
 - Week of 28-09-2020: Introduction, Computation
@@ -19,13 +19,7 @@
 - Week of 16-11-2020: Programming
 - Week of 23-11-2020: \
 - Week of 30-11-2020: OS, FreeRTOS
-- Week of 04-12-2020:
-- Week of 11-12-2020:
-
----
-
-- Week of ?: Security
-- Week of ?: Scheduling
+- Week of 07-12-2020: Project Evaluation
 
 ## LoRa32u4 II 868MHz LoRa development board
 ![Image of LoRa32u4 II v1.2](LoRa32u4.png)
