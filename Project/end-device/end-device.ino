@@ -277,9 +277,11 @@ void TaskLoRaReceiver(void) {
         firstPackageReceived = true;
       }
 
+      int delayBuffer = 200;
       vTaskResume(DatabaseControllerHandle);
-      vTaskDelay(((sleepTime*1000)+300)/portTICK_PERIOD_MS);  // Sleeping
+      vTaskDelay(((sleepTime*1000)-delayBuffer)/portTICK_PERIOD_MS);  // Sleeping
       LoRa.idle();  // Put LoRa module back into standby mode
+      ADCSRA |= bit(ADEN)|bit(ADPS2)|bit(ADPS1);  // enable ADC again
     }
   }
 }
