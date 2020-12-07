@@ -21,7 +21,7 @@
 - Week of 30-11-2020: OS, FreeRTOS
 - Week of 07-12-2020: Project Evaluation
 
-## LoRa32u4 II 868MHz LoRa development board
+## LoRa32u4 II 868MHz LoRa development board v1.2
 ![Image of LoRa32u4 II v1.2](LoRa32u4.png)
 
 ![Image of LoRa32u4 II v1.2 pins](LoRa32u4-pins.png)
