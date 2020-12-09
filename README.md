@@ -19,7 +19,7 @@
 - Week of 16-11-2020: Programming
 - Week of 23-11-2020: \
 - Week of 30-11-2020: OS, FreeRTOS
-- Week of 07-12-2020: Project Evaluation
+- Week of 07-12-2020: Scheduling, Project Evaluation
 
 ## LoRa32u4 II 868MHz LoRa development board v1.2
 ![Image of LoRa32u4 II v1.2](LoRa32u4.png)
