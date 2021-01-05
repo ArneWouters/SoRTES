@@ -7,6 +7,7 @@
 ## Project
 - SoRTES Project: Time-Synchronized Embedded Device
 - Deadline: **Monday 7 December 2020, 09:00**
+- Project score: 17/20
 
 ## Schedule
 - Week of 28-09-2020: Introduction, Computation
